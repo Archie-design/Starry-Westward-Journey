@@ -404,6 +404,13 @@ export async function updateSystemSetting(key: string, value: string) {
     return { success: true };
 }
 
+export async function deleteTestimony(id: string) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { error } = await supabase.from('Testimonies').delete().eq('id', id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
 export async function saveBirthday(userId: string, birthday: string) {
     // Validate format YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return { success: false, error: '日期格式錯誤，請使用 YYYY-MM-DD' };

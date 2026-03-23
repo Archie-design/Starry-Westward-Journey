@@ -37,6 +37,7 @@ interface AdminDashboardProps {
     onAutoDrawAllSquads: () => void;
     onImportRoster: (csvData: string) => Promise<void>;
     onFinalReviewW4: (appId: string, approve: boolean, notes: string) => Promise<void>;
+    onDeleteTestimony: (id: string) => Promise<void>;
     onClose: () => void;
 }
 
@@ -81,7 +82,7 @@ export function AdminDashboard({
     squadApprovedW4Apps, adminLogs, testimonies,
     onAddTempQuest, onToggleTempQuest, onDeleteTempQuest,
     onTriggerSnapshot, onCheckW3Compliance, onAutoDrawAllSquads,
-    onImportRoster, onFinalReviewW4, onClose
+    onImportRoster, onFinalReviewW4, onDeleteTestimony, onClose
 }: AdminDashboardProps) {
     const [activeTab, setActiveTab] = React.useState<TabId>('settings');
     const [csvInput, setCsvInput] = React.useState("");
@@ -488,12 +489,39 @@ export function AdminDashboard({
 
                         {/* 親證故事 */}
                         <section className="space-y-4">
-                            <div className="flex items-center gap-2 text-orange-500 font-black text-sm uppercase tracking-widest"><BookOpen size={14} /> 親證故事存檔（{testimonies.length} 筆）</div>
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2 text-orange-500 font-black text-sm uppercase tracking-widest"><BookOpen size={14} /> 親證故事存檔（{testimonies.length} 筆）</div>
+                                {testimonies.length > 0 && (
+                                    <button
+                                        onClick={() => {
+                                            const header = '姓名,類別,日期,內容,建立時間';
+                                            const rows = testimonies.map(t => [
+                                                t.parsed_name ?? t.display_name ?? '',
+                                                t.parsed_category ?? '',
+                                                t.parsed_date ?? '',
+                                                `"${(t.content ?? '').replace(/"/g, '""')}"`,
+                                                new Date(t.created_at).toLocaleString('zh-TW'),
+                                            ].join(','));
+                                            const csv = [header, ...rows].join('\n');
+                                            const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = `親證故事_${new Date().toLocaleDateString('zh-TW').replace(/\//g, '-')}.csv`;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                        }}
+                                        className="text-xs font-black text-slate-400 hover:text-orange-400 transition-colors flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700"
+                                    >
+                                        ↓ 匯出 CSV
+                                    </button>
+                                )}
+                            </div>
                             <div className="bg-slate-900 border-2 border-slate-800 rounded-3xl overflow-hidden shadow-xl max-h-[500px] overflow-y-auto divide-y divide-slate-800">
                                 {testimonies.length === 0 ? (
                                     <p className="text-sm text-slate-500 text-center py-8">尚無親證故事記錄</p>
                                 ) : testimonies.map(t => (
-                                    <div key={t.id} className="p-4 hover:bg-white/5 transition-colors space-y-1">
+                                    <div key={t.id} className="p-4 hover:bg-white/5 transition-colors group">
                                         <div className="flex justify-between items-start gap-2">
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-black text-white">
@@ -502,9 +530,18 @@ export function AdminDashboard({
                                                 </p>
                                                 <p className="text-xs text-slate-400 mt-1 leading-relaxed line-clamp-3">{t.content}</p>
                                             </div>
-                                            <div className="text-right shrink-0 text-[10px] text-slate-500 space-y-1">
-                                                <p>{t.parsed_date ?? '日期未填'}</p>
-                                                <p>{new Date(t.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                                            <div className="flex items-start gap-2 shrink-0">
+                                                <div className="text-right text-[10px] text-slate-500 space-y-1">
+                                                    <p>{t.parsed_date ?? '日期未填'}</p>
+                                                    <p>{new Date(t.created_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => onDeleteTestimony(t.id)}
+                                                    className="opacity-0 group-hover:opacity-100 p-1.5 bg-red-500/10 text-red-500 rounded-lg hover:bg-red-500/20 transition-all"
+                                                    title="刪除"
+                                                >
+                                                    <X size={13} />
+                                                </button>
                                             </div>
                                         </div>
                                     </div>

@@ -33,6 +33,7 @@ import { AdminDashboard } from '@/components/Admin/AdminDashboard';
 import { processCheckInTransaction } from '@/app/actions/quest';
 import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction, updateSystemSetting } from '@/app/actions/admin';
 import { getTestimonies } from '@/app/actions/testimonies_admin';
+import { deleteTestimony } from '@/app/actions/admin';
 import { drawWeeklyQuestForSquad, autoDrawAllSquads } from '@/app/actions/team';
 import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
@@ -1337,6 +1338,10 @@ export default function App() {
           onAutoDrawAllSquads={handleAutoDrawAllSquads}
           onImportRoster={handleImportRoster}
           onFinalReviewW4={handleFinalReviewW4}
+          onDeleteTestimony={async (id) => {
+            await deleteTestimony(id);
+            setTestimonies(prev => prev.filter(t => t.id !== id));
+          }}
           onClose={() => setView('login')}
         />
       )}
