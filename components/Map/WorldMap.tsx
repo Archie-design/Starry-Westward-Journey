@@ -39,17 +39,30 @@ interface WorldMapProps {
 }
 
 // --- Memoized Static Layer ---
+// 兩個 pass 解決等角投影遮蔽問題：先畫所有地板，再畫所有地形裝飾
 const StaticMapLayer = React.memo(({ grid, className = "", style = {} }: { grid: HexData[], className?: string, style?: React.CSSProperties }) => {
     return (
         <g className={className} style={style}>
             {grid.map(hex => (
                 <HexNode
-                    key={hex.key}
+                    key={`base_${hex.key}`}
                     hex={hex}
                     isHovered={false}
                     onHover={() => { }}
                     onClick={() => { }}
                     size={DEFAULT_CONFIG.HEX_SIZE_WORLD}
+                    renderPass="base"
+                />
+            ))}
+            {grid.map(hex => (
+                <HexNode
+                    key={`deco_${hex.key}`}
+                    hex={hex}
+                    isHovered={false}
+                    onHover={() => { }}
+                    onClick={() => { }}
+                    size={DEFAULT_CONFIG.HEX_SIZE_WORLD}
+                    renderPass="decoration"
                 />
             ))}
         </g>
@@ -703,7 +716,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     );
                                 }
                                 return (
-                                    <text key={`db_ent_${e.id}`} x={pos.x} y={pos.y - 1} textAnchor="middle" fontSize={12} className="drop-shadow-md">
+                                    <text key={`db_ent_${e.id}`} x={pos.x} y={pos.y + 3} textAnchor="middle" fontSize={7} className="drop-shadow-md">
                                         {e.icon}
                                     </text>
                                 );
