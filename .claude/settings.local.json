@@ -32,7 +32,11 @@
       "Bash(du -sh /Users/keke/starry-westward-journey/public/images/achievements/*.png)",
       "Bash(convert --version)",
       "Bash(magick --version)",
-      "Bash(sips --version)"
+      "Bash(sips --version)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(npx skills i YouMind-OpenLab/nano-banana-pro-prompts-recommend-skill)",
+      "Bash(npx skills i kingbootoshi/nano-banana-2-skill --yes)"
     ]
   }
 }

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "nano-banana": {
+      "source": "kingbootoshi/nano-banana-2-skill",
+      "sourceType": "github",
+      "computedHash": "52227e4869035e53d9abef6017eb289196207a8eb9d341949eaf8e3d500cc562"
+    },
+    "nano-banana-pro-prompts-recommend-skill": {
+      "source": "YouMind-OpenLab/nano-banana-pro-prompts-recommend-skill",
+      "sourceType": "github",
+      "computedHash": "3efc27f8fa938af3093fef0304edf91f6f3f3f391591da721b6a67b960a39eda"
+    }
+  }
+}
