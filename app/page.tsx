@@ -31,7 +31,7 @@ import { ACHIEVEMENT_MAP, RARITY_STYLE, type AchievementDef } from '@/lib/achiev
 import { getUserAchievements } from '@/app/actions/achievements';
 import { AdminDashboard } from '@/components/Admin/AdminDashboard';
 import { processCheckInTransaction } from '@/app/actions/quest';
-import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction } from '@/app/actions/admin';
+import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction, updateSystemSetting } from '@/app/actions/admin';
 import { getTestimonies } from '@/app/actions/testimonies_admin';
 import { drawWeeklyQuestForSquad, autoDrawAllSquads } from '@/app/actions/team';
 import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
@@ -419,8 +419,8 @@ export default function App() {
   const updateGlobalSetting = async (key: string, value: string) => {
     setIsSyncing(true);
     try {
-      const { error } = await supabase.from('SystemSettings').upsert({ SettingName: key, Value: value }, { onConflict: 'SettingName' });
-      if (error) throw error;
+      const result = await updateSystemSetting(key, value);
+      if (!result.success) throw new Error(result.error);
       setSystemSettings(prev => ({ ...prev, [key]: value }));
 
       if (key === 'TopicQuestTitle') {
