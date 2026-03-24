@@ -8,11 +8,11 @@ interface RegisterFormProps {
 }
 
 const FIVE_FORTUNES = [
-    { key: 'wealth', label: '金錢運', desc: '對物質、財務的安全感 (對治:豬八戒-貪)' },
-    { key: 'relationship', label: '感情運', desc: '與伴侶、人際互動的和諧度 (對治:孫悟空-嗔)' },
-    { key: 'family', label: '家庭運', desc: '與原生家庭、親情的圓滿度 (對治:沙悟淨-痴)' },
-    { key: 'career', label: '事業運', desc: '工作成就、社會定位的滿意度 (對治:白龍馬-慢)' },
-    { key: 'health', label: '身體運', desc: '健康狀況、精神活力的充沛度 (對治:唐三藏-疑)' },
+    { key: 'wealth', label: '金錢運', desc: '對物質、財務的安全感' },
+    { key: 'relationship', label: '感情運', desc: '與伴侶、人際互動的和諧度' },
+    { key: 'family', label: '家庭運', desc: '與原生家庭、親情的圓滿度' },
+    { key: 'career', label: '事業運', desc: '工作成就、社會定位的滿意度' },
+    { key: 'health', label: '身體運', desc: '健康狀況、精神活力的充沛度' },
 ];
 
 export function RegisterForm({ onRegister, onGoToLogin, isSyncing }: RegisterFormProps) {

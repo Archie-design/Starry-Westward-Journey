@@ -1,4 +1,5 @@
 import { differenceInCalendarWeeks, startOfYear, addWeeks, startOfWeek } from 'date-fns';
+import { TOPIC_PHASES } from '@/lib/constants';
 
 /**
  * 取得邏輯日期字串 (YYYY-MM-DD)
@@ -39,6 +40,15 @@ export const getWeeklyMonday = (date: Date = new Date()): Date => {
     d.setDate(d.getDate() - (day - 1));
     d.setHours(0, 0, 0, 0);
     return d;
+};
+
+/**
+ * 取得當前雙週挑戰主題親證階段
+ * 根據 TOPIC_PHASES 中的日期範圍自動比對
+ */
+export const getCurrentTopicPhase = (): typeof TOPIC_PHASES[number] | null => {
+    const now = new Date();
+    return TOPIC_PHASES.find(p => now >= new Date(p.start) && now <= new Date(p.end)) ?? null;
 };
 
 /**

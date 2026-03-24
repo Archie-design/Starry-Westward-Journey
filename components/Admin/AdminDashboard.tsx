@@ -1,6 +1,8 @@
 import React from 'react';
 import { Settings, X, BarChart3, Save, Users, Lock, QrCode, ClipboardList, Heart, BookOpen } from 'lucide-react';
 import { SystemSettings, CharacterStats, TopicHistory, TemporaryQuest, W4Application, AdminLog, Testimony } from '@/types';
+import { TOPIC_PHASES } from '@/lib/constants';
+import { getCurrentTopicPhase } from '@/lib/utils/time';
 
 const ACTION_LABELS: Record<string, string> = {
     temp_quest_add: '新增臨時任務',
@@ -91,7 +93,10 @@ export function AdminDashboard({
     const [reviewingW4Id, setReviewingW4Id] = React.useState<string | null>(null);
     const [volunteerPwd, setVolunteerPwd] = React.useState('');
     const [volPwdSaved, setVolPwdSaved] = React.useState(false);
-    const [topicTitle, setTopicTitle] = React.useState(systemSettings.TopicQuestTitle || '');
+    const autoPhase = getCurrentTopicPhase();
+    const [topicTitle, setTopicTitle] = React.useState(
+        autoPhase?.title ?? systemSettings.TopicQuestTitle ?? TOPIC_PHASES[0].title
+    );
     const [worldState, setWorldState] = React.useState(systemSettings.WorldState || 'normal');
     const [worldStateMsg, setWorldStateMsg] = React.useState(systemSettings.WorldStateMsg || '環境保持平衡。');
     const [worldStateSaved, setWorldStateSaved] = React.useState(false);
@@ -192,11 +197,15 @@ export function AdminDashboard({
                                 <div className="space-y-3">
                                     <label className="text-xs font-black text-slate-500 uppercase tracking-widest">雙週加分主題名稱</label>
                                     <div className="flex gap-2">
-                                        <input
+                                        <select
                                             value={topicTitle}
                                             onChange={e => setTopicTitle(e.target.value)}
                                             className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl p-4 text-white font-bold outline-none focus:border-orange-500 text-center"
-                                        />
+                                        >
+                                            {TOPIC_PHASES.map(p => (
+                                                <option key={p.title} value={p.title}>{p.label}</option>
+                                            ))}
+                                        </select>
                                         <button
                                             onClick={() => updateGlobalSetting('TopicQuestTitle', topicTitle)}
                                             className="bg-orange-600 px-5 rounded-2xl text-white font-black hover:bg-orange-500 transition-colors"
