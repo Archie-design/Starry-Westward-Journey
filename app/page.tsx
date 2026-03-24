@@ -271,8 +271,14 @@ export default function App() {
     setIsLoadingReview(true);
     try {
       const res = await generateWeeklyReview(userData.UserID);
-      if (res.success && res.review) setWeeklyReview(res.review);
-    } catch (_) { /* non-critical, silently skip */ } finally {
+      if (res.success && res.review) {
+        setWeeklyReview(res.review);
+      } else if (!res.success && userData?.IsGM) {
+        setModalMessage({ text: `AI 週報載入失敗：${res.error}`, type: 'error' });
+      }
+    } catch (e: any) {
+      if (userData?.IsGM) setModalMessage({ text: `AI 週報異常：${e.message}`, type: 'error' });
+    } finally {
       setIsLoadingReview(false);
     }
   };

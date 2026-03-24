@@ -213,6 +213,9 @@ export function AdminDashboard({
                                             <Save size={18} />
                                         </button>
                                     </div>
+                                    <p className="text-xs text-slate-500 font-bold">
+                                        前台目前顯示：<span className="text-yellow-400">「{systemSettings.TopicQuestTitle}」</span>
+                                    </p>
                                 </div>
                                 {topicHistory.length > 0 && (
                                     <div className="bg-slate-950/50 rounded-2xl border border-white/5 overflow-hidden">
