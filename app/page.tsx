@@ -720,7 +720,7 @@ export default function App() {
         Exp: newExp,
         Level: newLevel,
         EnergyDice: Math.max(0, userData.EnergyDice - (quest.dice || 0)),
-        Coins: Math.max(0, userData.Coins - Math.floor(actualReward * 0.1)),
+        Coins: Math.max(0, userData.Coins - Math.floor(quest.reward * 0.1)),
       };
 
       // Reverse level-up stat bonuses if level dropped
@@ -1424,15 +1424,21 @@ dbEntities={mapEntities}
         </div>
       )}
 
-      {undoTarget && (
+      {undoTarget && (() => {
+        const actualEarned = logs.find(l =>
+          (l.QuestID === undoTarget.id || (l.QuestID === 'q1_dawn' && undoTarget.id === 'q1')) &&
+          getLogicalDateStr(l.Timestamp) === logicalTodayStr
+        )?.RewardPoints ?? undoTarget.reward;
+        return (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-xl animate-in fade-in duration-200 text-center mx-auto">
           <div className="bg-slate-900 border-2 border-slate-800 p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full text-center space-y-6 mx-auto">
             <div className="w-20 h-20 rounded-full mx-auto flex items-center justify-center bg-orange-500/20 text-orange-500 mx-auto text-center"><RotateCcw size={40} className="animate-spin-slow" /></div>
-            <h3 className="text-2xl font-black text-white text-center mx-auto">發動時光回溯？</h3><p className="text-slate-400 text-sm font-bold text-center mx-auto">這將會扣除本次修得的 {undoTarget.reward} 修為。</p>
+            <h3 className="text-2xl font-black text-white text-center mx-auto">發動時光回溯？</h3><p className="text-slate-400 text-sm font-bold text-center mx-auto">這將會扣除本次修得的 {actualEarned} 修為。</p>
             <div className="flex gap-4 text-center mx-auto"><button onClick={() => setUndoTarget(null)} className="flex-1 py-4 bg-slate-800 text-slate-500 font-black rounded-2xl text-center shadow-lg transition-all active:scale-95">保持現狀</button><button onClick={() => handleUndoCheckInAction(undoTarget)} className="flex-1 py-4 bg-orange-600 text-white font-black rounded-2xl shadow-xl active:scale-95 transition-all text-center mx-auto">確認回溯</button></div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {isSyncing && (
         <div className="fixed inset-0 bg-slate-950/60 z-[1100] flex flex-col items-center justify-center text-center mx-auto">
