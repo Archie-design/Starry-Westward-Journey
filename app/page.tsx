@@ -268,6 +268,13 @@ export default function App() {
   const handleOpenWeeklyTab = async () => {
     setActiveTab('weekly');
     if (!userData?.UserID || weeklyReview !== null || isLoadingReview) return;
+    // 只有週一(1)、週四(4)、週六(6)（台灣時區）才觸發新生成
+    const twDateStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Taipei',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    const twDayOfWeek = new Date(twDateStr + 'T00:00:00').getDay();
+    if (![1, 4, 6].includes(twDayOfWeek)) return;
     setIsLoadingReview(true);
     try {
       const res = await generateWeeklyReview(userData.UserID);
