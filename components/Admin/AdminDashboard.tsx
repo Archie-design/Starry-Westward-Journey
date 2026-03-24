@@ -35,7 +35,6 @@ interface AdminDashboardProps {
     onToggleTempQuest: (id: string, active: boolean) => void;
     onDeleteTempQuest: (id: string) => void;
     onTriggerSnapshot: () => void;
-    onCheckW3Compliance: () => void;
     onAutoDrawAllSquads: () => void;
     onImportRoster: (csvData: string) => Promise<void>;
     onFinalReviewW4: (appId: string, approve: boolean, notes: string) => Promise<void>;
@@ -83,7 +82,7 @@ export function AdminDashboard({
     leaderboard, topicHistory, temporaryQuests,
     squadApprovedW4Apps, adminLogs, testimonies,
     onAddTempQuest, onToggleTempQuest, onDeleteTempQuest,
-    onTriggerSnapshot, onCheckW3Compliance, onAutoDrawAllSquads,
+    onTriggerSnapshot, onAutoDrawAllSquads,
     onImportRoster, onFinalReviewW4, onDeleteTestimony, onClose
 }: AdminDashboardProps) {
     const [activeTab, setActiveTab] = React.useState<TabId>('settings');
@@ -277,12 +276,6 @@ export function AdminDashboard({
                                         confirmLabel="確認執行結算"
                                         onConfirm={onTriggerSnapshot}
                                         className="w-full bg-blue-600 p-4 rounded-2xl text-white font-black shadow-lg hover:bg-blue-500 transition-colors"
-                                    />
-                                    <DangerButton
-                                        label="⚖️ 執行 w3 週罰款結算（未完成者 +NT$200）"
-                                        confirmLabel="確認執行罰款"
-                                        onConfirm={onCheckW3Compliance}
-                                        className="w-full bg-red-700 p-4 rounded-2xl text-white font-black shadow-lg hover:bg-red-600 transition-colors"
                                     />
                                     <button onClick={onAutoDrawAllSquads} className="w-full bg-indigo-600 p-4 rounded-2xl text-white font-black shadow-lg hover:bg-indigo-500 transition-colors">
                                         🎲 全服自動抽籤（為未抽小隊代選本週定課）

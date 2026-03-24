@@ -274,7 +274,6 @@ export default function AdminPage() {
         onToggleTempQuest={handleToggleTempQuest}
         onDeleteTempQuest={handleDeleteTempQuest}
         onTriggerSnapshot={handleTriggerSnapshot}
-        onCheckW3Compliance={handleCheckW3Compliance}
         onAutoDrawAllSquads={handleAutoDrawAllSquads}
         onImportRoster={handleImportRoster}
         onFinalReviewW4={handleFinalReviewW4}

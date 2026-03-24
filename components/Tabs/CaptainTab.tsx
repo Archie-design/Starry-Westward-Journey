@@ -66,16 +66,14 @@ export function CaptainTab({
     const [orgSubmitNotes, setOrgSubmitNotes] = useState('');
     const [isSubmittingOrg, setIsSubmittingOrg] = useState(false);
     const [periodLabel, setPeriodLabel] = useState(() => {
-        // 預設產生目前雙週週期標籤（台灣時間）
+        // 預設顯示上週一～本週一（最近完成的一週）
         const nowTW = new Date(Date.now() + 8 * 3600 * 1000);
         const day = nowTW.getUTCDay() || 7;
         const thisMonday = new Date(nowTW);
         thisMonday.setUTCDate(nowTW.getUTCDate() - (day - 1));
-        const prevMonday = new Date(thisMonday);
-        prevMonday.setUTCDate(thisMonday.getUTCDate() - 14);
-        const prevPrevMonday = new Date(thisMonday);
-        prevPrevMonday.setUTCDate(thisMonday.getUTCDate() - 7);
-        return `${prevMonday.toISOString().slice(0, 10)}~${prevPrevMonday.toISOString().slice(0, 10)}`;
+        const lastMonday = new Date(thisMonday);
+        lastMonday.setUTCDate(thisMonday.getUTCDate() - 7);
+        return `${lastMonday.toISOString().slice(0, 10)}~${thisMonday.toISOString().slice(0, 10)}`;
     });
 
     const weekMondayStr = getCurrentWeekMondayStr();
