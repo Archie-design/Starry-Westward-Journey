@@ -97,8 +97,11 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             ON CONFLICT ("SettingName") DO UPDATE SET "Value" = EXCLUDED."Value"
         `, [stateMsg]);
 
-        // 7. Clear old global entities
-        await client.query(`DELETE FROM "MapEntities" WHERE type NOT IN ('monster', 'chest', 'portal')`);
+        // 7. Load already-occupied hexes (preserve unclaimed chests/monsters)
+        const { rows: occupiedRows } = await client.query<{ q: number; r: number }>(
+            `SELECT q, r FROM "MapEntities"`
+        );
+        const occupiedSet = new Set(occupiedRows.map(e => `${e.q},${e.r}`));
 
         // 8. Generate new procedural entities based on worldState
         const chanceChest = worldState === 'good' ? 0.05 : worldState === 'bad' ? 0.01 : 0.02;
@@ -123,43 +126,53 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             return 'center';
         };
 
-        // We simulate a grid area of radius ~15 to scatter entities
+        // Build shuffled candidate list (skips center and already-occupied hexes)
         const R = 15;
+        const candidates: { q: number; r: number }[] = [];
         for (let q = -R; q <= R; q++) {
             for (let r = Math.max(-R, -q - R); r <= Math.min(R, -q + R); r++) {
                 if (q === 0 && r === 0) continue; // Safe hub
-                if (monsterCount >= MAX_MONSTERS && chestCount >= MAX_CHESTS) break;
-
-                const rand = Math.random();
-                if (rand < chanceChest && chestCount < MAX_CHESTS) {
-                    await client.query(`
-                        INSERT INTO "MapEntities" (q, r, type, name, icon)
-                        VALUES ($1, $2, 'treasure', '神秘寶箱', '🎁')
-                    `, [q, r]);
-                    chestCount++;
-                } else if (rand < chanceChest + chanceMonster && monsterCount < MAX_MONSTERS) {
-                    // Level scales with axial distance from center (Lv1 near hub, Lv20 at edges)
-                    const dist = (Math.abs(q) + Math.abs(r) + Math.abs(-q - r)) / 2;
-                    const level = Math.min(20, Math.max(1, Math.ceil(dist * 1.3)));
-                    const isElite = level >= 10 && Math.random() < 0.25;
-                    const hp = isElite ? Math.round((50 + level * 15) * 1.5) : 50 + level * 15;
-                    const zoneId = getZoneId(q, r);
-                    const zoneMonsterNames: Record<string, string> = {
-                        pride: '慢心魔', doubt: '疑心魔', anger: '嗔心魔',
-                        greed: '貪心魔', delusion: '痴心魔', chaos: '亂心魔',
-                    };
-                    const baseName = zoneMonsterNames[zoneId] ?? '野生妖獸';
-                    const monsterName = isElite ? `精英${baseName}` : baseName;
-                    const monsterIcon = isElite ? '👹' : '🐉';
-                    const monsterData = isElite ? { level, hp, zone: zoneId, type: 'elite' } : { level, hp, zone: zoneId };
-                    await client.query(`
-                        INSERT INTO "MapEntities" (q, r, type, name, icon, data)
-                        VALUES ($1, $2, 'monster', $3, $4, $5)
-                    `, [q, r, monsterName, monsterIcon, JSON.stringify(monsterData)]);
-                    monsterCount++;
-                }
+                if (occupiedSet.has(`${q},${r}`)) continue; // Skip occupied hexes
+                candidates.push({ q, r });
             }
+        }
+        // Fisher-Yates shuffle for uniform zone distribution
+        for (let i = candidates.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        }
+
+        for (const { q, r } of candidates) {
             if (monsterCount >= MAX_MONSTERS && chestCount >= MAX_CHESTS) break;
+
+            const rand = Math.random();
+            if (rand < chanceChest && chestCount < MAX_CHESTS) {
+                await client.query(`
+                    INSERT INTO "MapEntities" (q, r, type, name, icon)
+                    VALUES ($1, $2, 'treasure', '神秘寶箱', '🎁')
+                `, [q, r]);
+                chestCount++;
+            } else if (rand < chanceChest + chanceMonster && monsterCount < MAX_MONSTERS) {
+                // Level scales with axial distance from center (Lv1 near hub, Lv20 at edges)
+                const dist = (Math.abs(q) + Math.abs(r) + Math.abs(-q - r)) / 2;
+                const level = Math.min(20, Math.max(1, Math.ceil(dist * 1.3)));
+                const isElite = level >= 10 && Math.random() < 0.25;
+                const hp = isElite ? Math.round((50 + level * 15) * 1.5) : 50 + level * 15;
+                const zoneId = getZoneId(q, r);
+                const zoneMonsterNames: Record<string, string> = {
+                    pride: '慢心魔', doubt: '疑心魔', anger: '嗔心魔',
+                    greed: '貪心魔', delusion: '痴心魔', chaos: '亂心魔',
+                };
+                const baseName = zoneMonsterNames[zoneId] ?? '野生妖獸';
+                const monsterName = isElite ? `精英${baseName}` : baseName;
+                const monsterIcon = isElite ? '👹' : '🐉';
+                const monsterData = isElite ? { level, hp, zone: zoneId, type: 'elite' } : { level, hp, zone: zoneId };
+                await client.query(`
+                    INSERT INTO "MapEntities" (q, r, type, name, icon, data)
+                    VALUES ($1, $2, 'monster', $3, $4, $5)
+                `, [q, r, monsterName, monsterIcon, JSON.stringify(monsterData)]);
+                monsterCount++;
+            }
         }
 
         await client.query('COMMIT');

@@ -36,6 +36,7 @@ interface WorldMapProps {
     onShowMessage: (msg: string, type: 'success' | 'error' | 'info') => void;
     onUpdateUserData: (data: Partial<CharacterStats>) => void;
     onUpdateSteps?: (steps: number) => void;
+    onExchangeGoldenDice?: () => void;
 }
 
 // --- Memoized Static Layer ---
@@ -124,6 +125,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     onRollDice, onMoveCharacter, onBack, initialQ, initialR,
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
+    onExchangeGoldenDice,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -884,6 +886,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                         className={`w-full py-1.5 rounded-xl text-[9px] uppercase font-black flex items-center justify-center gap-1 transition-all ${(isRolling || stepsRemaining > 0) ? 'bg-slate-950 border border-yellow-700/50 text-slate-600' : 'bg-gradient-to-r from-yellow-600 to-amber-500 text-black shadow-lg shadow-yellow-500/30 active:scale-95'}`}
                                     >
                                         🌟 使用萬能奇蹟骰 ({userData.GoldenDice})
+                                    </button>
+                                )}
+                                {(userData.GoldenDice || 0) > 0 && (
+                                    <button
+                                        onClick={onExchangeGoldenDice}
+                                        disabled={isRolling}
+                                        className={`w-full py-1.5 rounded-xl text-[9px] uppercase font-black flex items-center justify-center gap-1 transition-all ${isRolling ? 'bg-slate-950 border border-amber-700/50 text-slate-600' : 'bg-gradient-to-r from-amber-800 to-yellow-700 text-amber-200 shadow-lg shadow-amber-900/30 active:scale-95'}`}
+                                    >
+                                        ✦ 兌換能源骰 ×3 (⭐→🎲🎲🎲)
                                     </button>
                                 )}
                             </div>

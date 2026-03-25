@@ -39,6 +39,7 @@ import { drawWeeklyQuestForSquad, autoDrawAllSquads } from '@/app/actions/team';
 import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
 import { handleChestOpen } from '@/app/actions/map';
+import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -546,6 +547,7 @@ export default function App() {
   };
 
   const [showGoldenDicePicker, setShowGoldenDicePicker] = useState(false);
+  const [showExchangeConfirm, setShowExchangeConfirm] = useState(false);
 
   const handleRollDice = (amount: number = 1) => {
     if (!userData || isRolling || stepsRemaining > 0) return;
@@ -626,6 +628,22 @@ export default function App() {
       setIsRolling(false);
       setModalMessage({ text: `萬能奇蹟骰已發動！精準鎖定 ${steps} 步！`, type: 'success' });
     }, 800);
+  };
+
+  const handleExchangeGoldenDice = async () => {
+    if (!userData || (userData.GoldenDice || 0) < 1) return;
+    const res = await exchangeGoldenDiceToEnergy(userData.UserID);
+    if (res.success) {
+      setUserData(prev => prev ? {
+        ...prev,
+        GoldenDice: (prev.GoldenDice || 0) - 1,
+        EnergyDice: Math.min((prev.EnergyDice || 0) + 3, 100),
+      } : null);
+      setModalMessage({ text: '兌換成功！消耗 1 黃金骰子，獲得 3 能源骰子。', type: 'success' });
+    } else {
+      setModalMessage({ text: '兌換失敗：' + res.error, type: 'error' });
+    }
+    setShowExchangeConfirm(false);
   };
 
   const handleMoveCharacter = async (q: number, r: number, dist: number, zoneId?: string, newFacing?: number) => {
@@ -1407,6 +1425,7 @@ dbEntities={mapEntities}
             setUserData(prev => prev ? { ...prev, ...data } : null);
           }}
           onUpdateSteps={setStepsRemaining}
+          onExchangeGoldenDice={() => setShowExchangeConfirm(true)}
         />
           </div>
         </div>
@@ -1440,6 +1459,19 @@ dbEntities={mapEntities}
             >
               取消
             </button>
+          </div>
+        </div>
+      )}
+
+      {showExchangeConfirm && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-6 bg-slate-950/95 backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-amber-700/40 p-8 rounded-[2.5rem] shadow-xl max-w-sm w-full text-center space-y-6">
+            <p className="text-xl font-black text-amber-300">⭐ → 🎲🎲🎲</p>
+            <p className="text-sm text-slate-300">消耗 <span className="text-amber-400 font-black">1 黃金骰子</span><br/>換取 <span className="text-emerald-400 font-black">3 能源骰子</span></p>
+            <div className="flex gap-4">
+              <button onClick={() => setShowExchangeConfirm(false)} className="flex-1 py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl">取消</button>
+              <button onClick={handleExchangeGoldenDice} className="flex-1 py-4 bg-amber-600 text-white font-black rounded-2xl shadow-lg active:scale-95">兌換</button>
+            </div>
           </div>
         </div>
       )}

@@ -24,6 +24,18 @@ export async function transferGoldenDiceToTeam(userId: string, teamName: string,
 }
 
 /**
+ * 兌換：消耗 1 黃金骰子，獲得 3 能源骰子（上限 100）
+ */
+export async function exchangeGoldenDiceToEnergy(userId: string) {
+    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const { error } = await supabase.rpc('exchange_golden_to_energy_dice', {
+        p_user_id: userId,
+    });
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
+/**
  * 在開箱前使用黃金骰子進行「加持」
  * 消耗 1 枚黃金骰子，確保下一次開箱必定获得最高獎勵且無視寶箱怪
  */
