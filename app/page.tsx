@@ -46,12 +46,16 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 
-const MessageBox = ({ message, onClose, type = 'info' }: { message: string, onClose: () => void, type?: 'info' | 'error' | 'success' }) => (
+const MessageBox = ({ message, onClose, type = 'info', image }: { message: string, onClose: () => void, type?: 'info' | 'error' | 'success', image?: string }) => (
   <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 bg-slate-950/90 backdrop-blur-sm animate-in fade-in duration-300 mx-auto text-center">
     <div className="bg-slate-900 border-2 border-slate-800 p-8 rounded-[2.5rem] shadow-2xl max-w-sm w-full text-center space-y-6 mx-auto flex flex-col items-center">
-      <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${type === 'error' ? 'bg-red-500/20 text-red-500' : type === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-blue-500/20 text-blue-500'}`}>
-        {type === 'error' ? <AlertTriangle size={40} /> : type === 'success' ? <CheckCircle2 size={40} /> : <Sparkles size={40} />}
-      </div>
+      {image ? (
+        <img src={image} alt="" className="w-24 h-24 mx-auto object-contain drop-shadow-lg" />
+      ) : (
+        <div className={`w-20 h-20 rounded-full mx-auto flex items-center justify-center ${type === 'error' ? 'bg-red-500/20 text-red-500' : type === 'success' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-blue-500/20 text-blue-500'}`}>
+          {type === 'error' ? <AlertTriangle size={40} /> : type === 'success' ? <CheckCircle2 size={40} /> : <Sparkles size={40} />}
+        </div>
+      )}
       <p className="text-xl font-bold text-white leading-relaxed text-center mx-auto">{message}</p>
       <button onClick={onClose} className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white font-black rounded-2xl transition-all active:scale-95 shadow-lg text-center mx-auto">確認領旨</button>
     </div>
@@ -71,7 +75,7 @@ export default function App() {
   const [topicHistory, setTopicHistory] = useState<TopicHistory[]>([]);
   const [temporaryQuests, setTemporaryQuests] = useState<TemporaryQuest[]>([]);
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({ TopicQuestTitle: '載入中...' });
-  const [modalMessage, setModalMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
+  const [modalMessage, setModalMessage] = useState<{ text: string, type: 'info' | 'error' | 'success', image?: string } | null>(null);
   const [undoTarget, setUndoTarget] = useState<Quest | null>(null);
   const [adminAuth, setAdminAuth] = useState(false);
   const [adminActorName, setAdminActorName] = useState('');
@@ -423,7 +427,11 @@ export default function App() {
         if (!userData) throw new Error('用戶資料未載入');
         const result = await handleChestOpen(userData.UserID, entity.id);
         setUserData(prev => prev ? { ...prev, EnergyDice: (prev.EnergyDice || 0) + result.lootDice } : prev);
-        setModalMessage({ text: result.message, type: result.isMimic && !result.lootDice ? 'error' : 'success' });
+        setModalMessage({
+          text: result.message,
+          type: result.isMimic && !result.lootDice ? 'error' : 'success',
+          image: result.isMimic ? '/images/chests/chest_mimic.png' : '/images/chests/chest_normal.png',
+        });
       } else if (entity.type !== 'monster') {
         if (entity.id) await supabase.from('MapEntities').delete().eq('id', entity.id);
         setModalMessage({
@@ -598,7 +606,14 @@ export default function App() {
       setMoveMultiplier(1); // Reset after single use
       setIsRolling(false);
       // Use functional update to avoid overwriting concurrent state changes (e.g. combat dice rewards)
-      setUserData(prev => prev ? { ...prev, EnergyDice: newDiceCount } : null);
+      setUserData(prev => {
+        if (!prev) return null;
+        // Persist steps so a page refresh can restore movement state
+        localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
+          stepsRemaining: roll, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
+        }));
+        return { ...prev, EnergyDice: newDiceCount };
+      });
       setModalMessage({ text: `修行法輪轉動完成！獲得步數：${roll}`, type: 'success' });
     }, 800);
   };
@@ -624,7 +639,13 @@ export default function App() {
         return;
       }
       setStepsRemaining(steps);
-      setUserData(prev => prev ? { ...prev, GoldenDice: newGoldenCount } : null);
+      setUserData(prev => {
+        if (!prev) return null;
+        localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
+          stepsRemaining: steps, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
+        }));
+        return { ...prev, GoldenDice: newGoldenCount };
+      });
       setIsRolling(false);
       setModalMessage({ text: `萬能奇蹟骰已發動！精準鎖定 ${steps} 步！`, type: 'success' });
     }, 800);
@@ -679,6 +700,15 @@ export default function App() {
         finalQ += rand.q;
         finalR += rand.r;
         penaltyText = penaltyText ? penaltyText + " 並在虛妄流沙中迷失方向！" : "在虛妄流沙中迷失方向，發生強制位移！";
+      }
+
+      // Persist new position + remaining steps BEFORE awaiting DB write.
+      // If the user refreshes mid-flight, the position and steps are restored from localStorage.
+      const mapStateKey = `starry_map_state_${userData.UserID}`;
+      if (remaining > 0) {
+        localStorage.setItem(mapStateKey, JSON.stringify({ stepsRemaining: remaining, q: finalQ, r: finalR, ts: Date.now() }));
+      } else {
+        localStorage.removeItem(mapStateKey);
       }
 
       const { error } = await supabase.from('CharacterStats')
@@ -924,7 +954,13 @@ export default function App() {
     setView('map');
   };
 
-  const handleLogout = () => { localStorage.removeItem('starry_session_uid'); localStorage.removeItem('starry_session_expiry'); setUserData(null); setView('login'); };
+  const handleLogout = () => {
+    if (userData) localStorage.removeItem(`starry_map_state_${userData.UserID}`);
+    localStorage.removeItem('starry_session_uid');
+    localStorage.removeItem('starry_session_expiry');
+    setUserData(null);
+    setView('login');
+  };
 
   // One-time static data load — world map terrain, settings, history
   // Separated from the login useEffect so userData changes don't re-fetch and potentially clobber mapData
@@ -1061,7 +1097,27 @@ export default function App() {
             }
           }
 
-          setUserData(stats as CharacterStats);
+          // Restore in-progress movement state from localStorage (survives page refresh)
+          const mapStateKey = `starry_map_state_${stats.UserID}`;
+          const savedMapState = (() => {
+            try {
+              const raw = localStorage.getItem(mapStateKey);
+              if (!raw) return null;
+              const parsed = JSON.parse(raw);
+              // Discard if older than 2 hours (stale session)
+              if (Date.now() - parsed.ts > 2 * 60 * 60 * 1000) {
+                localStorage.removeItem(mapStateKey);
+                return null;
+              }
+              return parsed;
+            } catch { return null; }
+          })();
+
+          const restoredStats = savedMapState
+            ? { ...stats, CurrentQ: savedMapState.q, CurrentR: savedMapState.r }
+            : stats;
+          setUserData(restoredStats as CharacterStats);
+          if (savedMapState?.stepsRemaining > 0) setStepsRemaining(savedMapState.stepsRemaining);
           setLogs(logsArray);
 
           // Fetch w4 applications for this user
@@ -1499,7 +1555,7 @@ dbEntities={mapEntities}
         </div>
       )}
 
-      {modalMessage && <MessageBox message={modalMessage.text} type={modalMessage.type} onClose={() => setModalMessage(null)} />}
+      {modalMessage && <MessageBox message={modalMessage.text} type={modalMessage.type} image={modalMessage.image} onClose={() => setModalMessage(null)} />}
     </div>
   );
 }

@@ -717,6 +717,30 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                         />
                                     );
                                 }
+                                if (e.type === 'treasure') {
+                                    const chestImg = e.data?.worldState === 'good'
+                                        ? '/images/chests/chest_golden.png'
+                                        : '/images/chests/chest_normal.png';
+                                    const W = 7, H = 7;
+                                    return (
+                                        <g key={`db_ent_${e.id}`}>
+                                            <image
+                                                href={chestImg}
+                                                x={pos.x - W / 2} y={pos.y - H / 2 - 3}
+                                                width={W} height={H}
+                                                preserveAspectRatio="xMidYMid meet"
+                                                style={{ filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.8))' }}
+                                            />
+                                            {/* 行動裝置觸控輔助區域 (透明擴大點擊範圍) */}
+                                            <rect
+                                                x={pos.x - 22} y={pos.y - 22}
+                                                width={44} height={44}
+                                                fill="transparent"
+                                                style={{ pointerEvents: 'none' }}
+                                            />
+                                        </g>
+                                    );
+                                }
                                 return (
                                     <text key={`db_ent_${e.id}`} x={pos.x} y={pos.y + 3} textAnchor="middle" fontSize={7} className="drop-shadow-md">
                                         {e.icon}

@@ -31,18 +31,18 @@ export async function handleChestOpen(userId: string, entityId: string) {
         const roll = Math.floor(Math.random() * 20) + 1;
         const checkValue = roll + (user.Savvy || 0);
         
-        if (checkValue < 12) {
+        if (checkValue < 18) {
             // 檢定失敗：扣除骰子
             const loss = 1;
             const newDice = Math.max(0, (user.EnergyDice || 0) - loss);
             await supabase.from('CharacterStats').update({ EnergyDice: newDice }).eq('UserID', userId);
-            message = `糟糕！是寶箱怪！檢定失敗 (骰出 ${roll} + 慧根 ${user.Savvy} < 12)，你失去了 1 個能源骰子。`;
+            message = `糟糕！是寶箱怪！檢定失敗 (骰出 ${roll} + 慧根 ${user.Savvy} < 18)，你失去了 1 個能源骰子。`;
         } else {
             // 檢定成功：識破並反擊獲得保底獎勵
             lootDice = 1;
             const newDice = (user.EnergyDice || 0) + lootDice;
             await supabase.from('CharacterStats').update({ EnergyDice: newDice }).eq('UserID', userId);
-            message = `警覺！你識破了寶箱怪的偽裝 (骰出 ${roll} + 慧根 ${user.Savvy} >= 12)，反手搜刮了 1 個能源骰子！`;
+            message = `警覺！你識破了寶箱怪的偽裝 (骰出 ${roll} + 慧根 ${user.Savvy} >= 18)，反手搜刮了 1 個能源骰子！`;
         }
     } else {
         // 正常抽取掉落物
