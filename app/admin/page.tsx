@@ -11,11 +11,10 @@ import { ADMIN_PASSWORD } from '@/lib/constants';
 import {
   triggerWeeklySnapshot,
   importRostersData,
-  checkWeeklyW3Compliance,
-  autoAssignSquadsForTesting,
   logAdminAction,
   updateSystemSetting,
   deleteTestimony,
+  getGMUserByUID,
 } from '@/app/actions/admin';
 import { autoDrawAllSquads } from '@/app/actions/team';
 import { reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
@@ -42,6 +41,8 @@ export default function AdminPage() {
   const router = useRouter();
   const [isSyncing, setIsSyncing] = useState(false);
   const [adminAuth, setAdminAuth] = useState(false);
+  const [adminActorName, setAdminActorName] = useState('');
+  const [lineVerifiedName, setLineVerifiedName] = useState('');
   const [modalMessage, setModalMessage] = useState<{ text: string; type: 'info' | 'error' | 'success' } | null>(null);
 
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({ TopicQuestTitle: '載入中...' });
@@ -51,6 +52,26 @@ export default function AdminPage() {
   const [squadApprovedW4Apps, setSquadApprovedW4Apps] = useState<W4Application[]>([]);
   const [adminLogs, setAdminLogs] = useState<AdminLog[]>([]);
   const [testimonies, setTestimonies] = useState<Testimony[]>([]);
+
+  // Read ?line_uid= from URL after LINE OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const lineUid = params.get('line_uid');
+    const lineError = params.get('line_error');
+    if (lineError) {
+      setModalMessage({ text: `LINE 驗證失敗：${lineError}`, type: 'error' });
+      window.history.replaceState({}, '', '/admin');
+    } else if (lineUid) {
+      getGMUserByUID(decodeURIComponent(lineUid)).then(res => {
+        if (res.success && res.name) {
+          setLineVerifiedName(res.name);
+        } else {
+          setModalMessage({ text: res.error || 'LINE 驗證失敗', type: 'error' });
+        }
+      });
+      window.history.replaceState({}, '', '/admin');
+    }
+  }, []);
 
   // Load static data on mount
   useEffect(() => {
@@ -86,17 +107,18 @@ export default function AdminPage() {
   const handleAdminAuth = async (e: { preventDefault: () => void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    if (fd.get('password') === ADMIN_PASSWORD) {
-      setAdminAuth(true);
-      const [w4Res, logsRes] = await Promise.all([
-        getW4Applications({ status: 'squad_approved' }),
-        getAdminActivityLog(30),
-      ]);
-      if (w4Res.success) setSquadApprovedW4Apps(w4Res.applications);
-      if (logsRes.success) setAdminLogs(logsRes.logs as AdminLog[]);
-    } else {
+    if (String(fd.get('password')) !== ADMIN_PASSWORD) {
       setModalMessage({ text: '密令錯誤，大會禁地不可擅闖。', type: 'error' });
+      return;
     }
+    setAdminActorName(lineVerifiedName);
+    setAdminAuth(true);
+    const [w4Res, logsRes] = await Promise.all([
+      getW4Applications({ status: 'squad_approved' }),
+      getAdminActivityLog(30),
+    ]);
+    if (w4Res.success) setSquadApprovedW4Apps(w4Res.applications);
+    if (logsRes.success) setAdminLogs(logsRes.logs as AdminLog[]);
   };
 
   const updateGlobalSetting = async (key: string, value: string) => {
@@ -125,7 +147,7 @@ export default function AdminPage() {
     if (!confirm('確定要執行『每週業力結算』(Weekly Snapshot)？\n這將重新計算所有活躍使用者的完成率，並變更全服動態難度 (WorldState)。')) return;
     setIsSyncing(true);
     try {
-      const res = await triggerWeeklySnapshot();
+      const res = await triggerWeeklySnapshot(adminActorName);
       if (res.success) {
         setSystemSettings(prev => ({ ...prev, WorldState: res.worldState, WorldStateMsg: res.message }));
         setModalMessage({ text: `結算完成！目前的共業狀態為：${res.message}`, type: 'success' });
@@ -139,30 +161,11 @@ export default function AdminPage() {
     }
   };
 
-  const handleCheckW3Compliance = async () => {
-    if (!confirm('確定要執行『w3 週罰款結算』？\n本週未完成「自我精進課」(w3) 的修行者將被記 NT$200 罰金。')) return;
-    setIsSyncing(true);
-    try {
-      const res = await checkWeeklyW3Compliance();
-      if (res.success) {
-        const count = res.violatorCount ?? 0;
-        const names = res.violators?.map((v: { name: string }) => v.name).join('、') || '（無）';
-        setModalMessage({ text: `w3 結算完成！共 ${count} 人未達標，已記罰：${names}`, type: count > 0 ? 'error' : 'success' });
-      } else {
-        setModalMessage({ text: '結算失敗：' + res.error, type: 'error' });
-      }
-    } catch (e: any) {
-      setModalMessage({ text: '系統異常：' + e.message, type: 'error' });
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const handleAutoDrawAllSquads = async () => {
     if (!confirm('確定要為所有本週尚未抽籤的小隊自動抽選推薦定課？')) return;
     setIsSyncing(true);
     try {
-      const res = await autoDrawAllSquads();
+      const res = await autoDrawAllSquads(adminActorName);
       if (res.success) {
         const summary = res.drawn?.map((d: { squadName: string; questName: string }) => `${d.squadName}→${d.questName}`).join('、') || '（無）';
         setModalMessage({ text: `自動抽籤完成！${res.drawnCount} 個小隊已抽選，${res.skippedCount} 個已跳過。\n${summary}`, type: 'success' });
@@ -179,7 +182,7 @@ export default function AdminPage() {
   const handleImportRoster = async (csvData: string) => {
     setIsSyncing(true);
     try {
-      const res = await importRostersData(csvData);
+      const res = await importRostersData(csvData, adminActorName);
       if (res.success) {
         setModalMessage({ text: `成功匯入！共新增/更新了 ${res.count} 筆名冊資料。`, type: 'success' });
       } else {
@@ -201,7 +204,7 @@ export default function AdminPage() {
       if (error) throw error;
       const newQuest: TemporaryQuest = { id, title, sub, desc, reward, limit: 1, active: true };
       setTemporaryQuests(prev => [newQuest, ...prev]);
-      await logAdminAction('temp_quest_add', 'admin', id, title, { reward });
+      await logAdminAction('temp_quest_add', adminActorName, id, title, { reward });
     } catch {
       setModalMessage({ text: '新增臨時任務失敗。', type: 'error' });
     } finally {
@@ -215,7 +218,7 @@ export default function AdminPage() {
       const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.map(q => q.id === id ? { ...q, active } : q));
-      await logAdminAction('temp_quest_toggle', 'admin', id, undefined, { active });
+      await logAdminAction('temp_quest_toggle', adminActorName, id, undefined, { active });
     } catch {
       setModalMessage({ text: '更新臨時任務狀態失敗。', type: 'error' });
     } finally {
@@ -230,7 +233,7 @@ export default function AdminPage() {
       const { error } = await supabase.from('temporaryquests').delete().eq('id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.filter(q => q.id !== id));
-      await logAdminAction('temp_quest_delete', 'admin', id);
+      await logAdminAction('temp_quest_delete', adminActorName, id);
     } catch {
       setModalMessage({ text: '刪除臨時任務失敗。', type: 'error' });
     } finally {
@@ -282,6 +285,8 @@ export default function AdminPage() {
           setTestimonies(prev => prev.filter(t => t.id !== id));
         }}
         onClose={() => router.push('/')}
+        actorName={adminActorName}
+        lineVerifiedName={lineVerifiedName}
       />
     </div>
   );

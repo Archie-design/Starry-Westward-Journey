@@ -90,6 +90,9 @@ export async function GET(request: NextRequest) {
             return NextResponse.redirect(`${appUrl}/?line_bound=success`);
         } else {
             // Login flow: find user by LINE ID
+            const [stateAction, redirectTarget] = state.split('|');
+            void stateAction; // always 'login' in this branch
+
             const { data: user } = await supabase
                 .from('CharacterStats')
                 .select('UserID')
@@ -97,11 +100,18 @@ export async function GET(request: NextRequest) {
                 .maybeSingle();
 
             if (!user) {
+                if (redirectTarget === 'admin') {
+                    return NextResponse.redirect(`${appUrl}/admin?line_error=not_bound`);
+                }
                 return NextResponse.redirect(`${appUrl}/?line_error=not_bound`);
             }
 
             // Encode UserID in URL (safe: it's a phone number)
             const encoded = encodeURIComponent(user.UserID);
+
+            if (redirectTarget === 'admin') {
+                return NextResponse.redirect(`${appUrl}/admin?line_uid=${encoded}`);
+            }
             return NextResponse.redirect(`${appUrl}/?line_uid=${encoded}`);
         }
     } catch {

@@ -73,6 +73,7 @@ export default function App() {
   const [modalMessage, setModalMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [undoTarget, setUndoTarget] = useState<Quest | null>(null);
   const [adminAuth, setAdminAuth] = useState(false);
+  const [adminActorName, setAdminActorName] = useState('');
   const [mapData, setMapData] = useState<Record<string, string>>({});
   const [mapEntities, setMapEntities] = useState<any[]>([]);
   const [teamSettings, setTeamSettings] = useState<any>(null);
@@ -146,25 +147,30 @@ export default function App() {
   const handleAdminAuth = async (e: { preventDefault: () => void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    if (fd.get('password') === ADMIN_PASSWORD) {
-      setAdminAuth(true);
-      // Fetch admin data on auth
-      const [w4Res, logsRes] = await Promise.all([
-        getW4Applications({ status: 'squad_approved' }),
-        getAdminActivityLog(30),
-      ]);
-      if (w4Res.success) setSquadApprovedW4Apps(w4Res.applications);
-      if (logsRes.success) setAdminLogs(logsRes.logs as AdminLog[]);
-    } else {
+    if (String(fd.get('password')) !== ADMIN_PASSWORD) {
       setModalMessage({ text: "密令錯誤，大會禁地不可擅闖。", type: 'error' });
+      return;
     }
+    if (!userData?.IsGM) {
+      setModalMessage({ text: '此帳號無管理員權限。', type: 'error' });
+      return;
+    }
+    setAdminActorName(userData.Name);
+    setAdminAuth(true);
+    // Fetch admin data on auth
+    const [w4Res, logsRes] = await Promise.all([
+      getW4Applications({ status: 'squad_approved' }),
+      getAdminActivityLog(30),
+    ]);
+    if (w4Res.success) setSquadApprovedW4Apps(w4Res.applications);
+    if (logsRes.success) setAdminLogs(logsRes.logs as AdminLog[]);
   };
 
   const handleTriggerSnapshot = async () => {
     if (!confirm("確定要執行『每週業力結算』(Weekly Snapshot)？\n這將重新計算所有活躍使用者的完成率，並變更全服動態難度 (WorldState)。")) return;
     setIsSyncing(true);
     try {
-      const res = await triggerWeeklySnapshot();
+      const res = await triggerWeeklySnapshot(adminActorName);
       if (res.success) {
         setSystemSettings(prev => ({
           ...prev,
@@ -185,7 +191,7 @@ export default function App() {
   const handleImportRoster = async (csvData: string) => {
     setIsSyncing(true);
     try {
-      const res = await importRostersData(csvData);
+      const res = await importRostersData(csvData, adminActorName);
       if (res.success) {
         setModalMessage({ text: `成功匯入！共新增/更新了 ${res.count} 筆名冊資料。`, type: 'success' });
       } else {
@@ -380,7 +386,7 @@ export default function App() {
     if (!confirm("確定要為所有本週尚未抽籤的小隊自動抽選推薦定課？")) return;
     setIsSyncing(true);
     try {
-      const res = await autoDrawAllSquads();
+      const res = await autoDrawAllSquads(adminActorName);
       if (res.success) {
         const summary = res.drawn?.map((d: { squadName: string; questName: string }) => `${d.squadName}→${d.questName}`).join('、') || '（無）';
         setModalMessage({ text: `自動抽籤完成！${res.drawnCount} 個小隊已抽選，${res.skippedCount} 個已跳過。\n${summary}`, type: 'success' });
@@ -462,7 +468,7 @@ export default function App() {
       if (error) throw error;
       const newQuest: TemporaryQuest = { id, title, sub, desc, reward, limit: 1, active: true };
       setTemporaryQuests(prev => [newQuest, ...prev]);
-      await logAdminAction('temp_quest_add', 'admin', id, title, { reward });
+      await logAdminAction('temp_quest_add', adminActorName, id, title, { reward });
     } catch (err) {
       console.error(err);
       setModalMessage({ text: "新增臨時任務失敗。", type: 'error' });
@@ -477,7 +483,7 @@ export default function App() {
       const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.map(q => q.id === id ? { ...q, active } : q));
-      await logAdminAction('temp_quest_toggle', 'admin', id, undefined, { active });
+      await logAdminAction('temp_quest_toggle', adminActorName, id, undefined, { active });
     } catch (err) {
       setModalMessage({ text: "更新臨時任務狀態失敗。", type: 'error' });
     } finally {
@@ -492,7 +498,7 @@ export default function App() {
       const { error } = await supabase.from('temporaryquests').delete().eq('id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.filter(q => q.id !== id));
-      await logAdminAction('temp_quest_delete', 'admin', id);
+      await logAdminAction('temp_quest_delete', adminActorName, id);
     } catch (err) {
       setModalMessage({ text: "刪除臨時任務失敗。", type: 'error' });
     } finally {
@@ -1356,6 +1362,7 @@ export default function App() {
             setTestimonies(prev => prev.filter(t => t.id !== id));
           }}
           onClose={() => setView('login')}
+          actorName={adminActorName}
         />
       )}
 

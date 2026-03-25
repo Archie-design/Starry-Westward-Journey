@@ -74,7 +74,7 @@ export async function drawWeeklyQuestForSquad(squadName: string, captainUserId: 
 /**
  * 管理員觸發：為本週尚未抽籤的所有小隊自動抽選推薦定課
  */
-export async function autoDrawAllSquads() {
+export async function autoDrawAllSquads(actorName = 'system') {
     const supabase = createClient(supabaseUrl, supabaseActionKey);
     const weekMondayStr = getCurrentWeekMondayStr();
 
@@ -119,7 +119,7 @@ export async function autoDrawAllSquads() {
     }
 
     if (drawn.length > 0) {
-        await logAdminAction('auto_draw_quests', 'admin', undefined, undefined, {
+        await logAdminAction('auto_draw_quests', actorName, undefined, undefined, {
             drawnCount: drawn.length,
             skippedCount: allTeams.length - drawn.length,
             weekLabel: weekMondayStr,

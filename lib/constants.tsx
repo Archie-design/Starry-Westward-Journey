@@ -5,13 +5,12 @@ import { Quest, ZoneInfo, CharacterStats } from '@/types';
 export const BASE_START_DATE_STR = "2026-02-01";
 
 export const TOPIC_PHASES = [
-  { label: 'W1-2：採訪爸媽故事書',   title: '採訪爸媽故事書',   start: '2025-06-01T00:00:00+08:00', end: '2025-06-14T23:59:59+08:00' },
-  { label: 'W3-4：聊聊爸媽正向需求', title: '聊聊爸媽正向需求', start: '2025-06-15T00:00:00+08:00', end: '2025-06-28T23:59:59+08:00' },
-  { label: 'W5-6：執行爸媽正向需求', title: '執行爸媽正向需求', start: '2025-06-29T00:00:00+08:00', end: '2025-07-12T23:59:59+08:00' },
-  { label: 'W7+：三道菜',             title: '三道菜',             start: '2025-07-13T00:00:00+08:00', end: '2025-07-22T12:00:00+08:00' },
+    { label: 'W1-2：採訪爸媽故事書', title: '採訪爸媽故事書', start: '2025-06-01T00:00:00+08:00', end: '2025-06-14T23:59:59+08:00' },
+    { label: 'W3-4：聊聊爸媽正向需求', title: '聊聊爸媽正向需求', start: '2025-06-15T00:00:00+08:00', end: '2025-06-28T23:59:59+08:00' },
+    { label: 'W5-6：執行爸媽正向需求', title: '執行爸媽正向需求', start: '2025-06-29T00:00:00+08:00', end: '2025-07-12T23:59:59+08:00' },
+    { label: 'W7+：三道菜', title: '三道菜', start: '2025-07-13T00:00:00+08:00', end: '2025-07-22T12:00:00+08:00' },
 ] as const;
 export const END_DATE = "2026-06-28";
-export const PENALTY_PER_DAY = 50;
 
 export function calculateLevelFromExp(exp: number): number {
     let currentLevel = 1;

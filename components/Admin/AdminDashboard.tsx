@@ -40,6 +40,8 @@ interface AdminDashboardProps {
     onFinalReviewW4: (appId: string, approve: boolean, notes: string) => Promise<void>;
     onDeleteTestimony: (id: string) => Promise<void>;
     onClose: () => void;
+    actorName?: string;
+    lineVerifiedName?: string;
 }
 
 // 危險操作確認按鈕
@@ -83,7 +85,8 @@ export function AdminDashboard({
     squadApprovedW4Apps, adminLogs, testimonies,
     onAddTempQuest, onToggleTempQuest, onDeleteTempQuest,
     onTriggerSnapshot, onAutoDrawAllSquads,
-    onImportRoster, onFinalReviewW4, onDeleteTestimony, onClose
+    onImportRoster, onFinalReviewW4, onDeleteTestimony, onClose,
+    actorName, lineVerifiedName,
 }: AdminDashboardProps) {
     const [activeTab, setActiveTab] = React.useState<TabId>('settings');
     const [csvInput, setCsvInput] = React.useState("");
@@ -129,13 +132,26 @@ export function AdminDashboard({
                 <div className="max-w-sm w-full space-y-8 text-center mx-auto">
                     <div className="w-20 h-20 bg-slate-800 rounded-3xl mx-auto flex items-center justify-center border border-slate-700 text-orange-500"><Lock size={40} /></div>
                     <h1 className="text-3xl font-black text-white text-center mx-auto">大會中樞驗證</h1>
-                    <form onSubmit={onAuth} className="space-y-6">
-                        <input name="password" type="password" required className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-5 text-white text-center text-xl outline-none focus:border-orange-500 font-bold" placeholder="密令" autoFocus />
-                        <div className="flex gap-4">
-                            <button type="button" onClick={onClose} className="flex-1 py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl">取消</button>
-                            <button className="flex-2 py-4 bg-orange-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all">驗證登入</button>
+                    {!lineVerifiedName ? (
+                        <div className="space-y-4">
+                            <a
+                                href="/api/auth/line?action=login&redirect=admin"
+                                className="block w-full py-5 bg-[#06C755] hover:bg-[#05b34d] text-white font-black text-center rounded-2xl transition-all active:scale-95 shadow-lg"
+                            >
+                                以 LINE 帳號驗證身份
+                            </a>
+                            <button type="button" onClick={onClose} className="w-full py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl">取消</button>
                         </div>
-                    </form>
+                    ) : (
+                        <form onSubmit={onAuth} className="space-y-6">
+                            <p className="text-sm text-green-400 font-bold">✓ LINE 已驗證：{lineVerifiedName}</p>
+                            <input name="password" type="password" required className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-5 text-white text-center text-xl outline-none focus:border-orange-500 font-bold" placeholder="密令" autoFocus />
+                            <div className="flex gap-4">
+                                <button type="button" onClick={onClose} className="flex-1 py-4 bg-slate-800 text-slate-400 font-bold rounded-2xl">取消</button>
+                                <button className="flex-2 py-4 bg-orange-600 text-white font-black rounded-2xl shadow-lg active:scale-95 transition-all">驗證登入</button>
+                            </div>
+                        </form>
+                    )}
                 </div>
             </div>
         );
@@ -156,7 +172,10 @@ export function AdminDashboard({
                 <div className="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
                     <div className="flex items-center gap-3">
                         <div className="p-2 bg-orange-600 rounded-xl text-white"><Settings size={18} /></div>
-                        <h1 className="text-xl font-black text-white">大會管理後台</h1>
+                        <div>
+                            <h1 className="text-xl font-black text-white">大會管理後台</h1>
+                            {actorName && <p className="text-xs text-orange-400 font-bold">已登入：{actorName}</p>}
+                        </div>
                     </div>
                     <button onClick={onClose} className="p-2 bg-slate-900 rounded-xl text-slate-500 border border-slate-800 hover:text-red-400"><X size={18} /></button>
                 </div>

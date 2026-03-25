@@ -6,6 +6,19 @@ import { createClient } from '@supabase/supabase-js';
 const _supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const _supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+// ── GM 身份驗證 ────────────────────────────────────────
+export async function getGMUserByUID(uid: string): Promise<{ success: boolean; name?: string; error?: string }> {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { data } = await supabase
+        .from('CharacterStats')
+        .select('Name, IsGM')
+        .eq('UserID', uid)
+        .maybeSingle();
+    if (!data) return { success: false, error: '查無此修行者。' };
+    if (!data.IsGM) return { success: false, error: '此帳號無管理員權限。' };
+    return { success: true, name: data.Name };
+}
+
 // ── 通用管理操作 Log ──────────────────────────────────────
 export async function logAdminAction(
     action: string,
@@ -23,7 +36,7 @@ export async function logAdminAction(
     } catch (_) { /* log failure should never break the main flow */ }
 }
 
-export async function triggerWeeklySnapshot() {
+export async function triggerWeeklySnapshot(actorName = 'system') {
     
     const client = await connectDb();
     try {
@@ -150,19 +163,19 @@ export async function triggerWeeklySnapshot() {
         }
 
         await client.query('COMMIT');
-        await logAdminAction('weekly_snapshot', 'admin', undefined, undefined, { worldState, rate: Math.round(rate * 100) + '%' });
+        await logAdminAction('weekly_snapshot', actorName, undefined, undefined, { worldState, rate: Math.round(rate * 100) + '%' });
         return { success: true, worldState, rate, message: stateMsg };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        await logAdminAction('weekly_snapshot', 'admin', undefined, undefined, { error: error.message }, 'error');
+        await logAdminAction('weekly_snapshot', actorName, undefined, undefined, { error: error.message }, 'error');
         return { success: false, error: error.message };
     } finally {
         await client.end();
     }
 }
 
-export async function checkWeeklyW3Compliance(startMondayISO?: string, endMondayISO?: string) {
+export async function checkWeeklyW3Compliance(startMondayISO?: string, endMondayISO?: string, actorName = 'system') {
 
     const client = await connectDb();
     try {
@@ -223,7 +236,7 @@ export async function checkWeeklyW3Compliance(startMondayISO?: string, endMonday
         }
         await client.query('COMMIT');
 
-        await logAdminAction('w3_compliance', 'admin', undefined, periodLabel, {
+        await logAdminAction('w3_compliance', actorName, undefined, periodLabel, {
             totalUsers: usersRes.rowCount || 0,
             violatorCount: violators.length,
             violators: violators.map(v => v.name),
@@ -238,7 +251,7 @@ export async function checkWeeklyW3Compliance(startMondayISO?: string, endMonday
         };
     } catch (error: any) {
         await client.query('ROLLBACK');
-        await logAdminAction('w3_compliance', 'admin', undefined, undefined, { error: error.message }, 'error');
+        await logAdminAction('w3_compliance', actorName, undefined, undefined, { error: error.message }, 'error');
         return { success: false, error: error.message };
     } finally {
         await client.end();
@@ -256,7 +269,8 @@ const ZH_NUMS = ['一', '二', '三', '四', '五', '六', '七', '八', '九', 
  */
 export async function autoAssignSquadsForTesting(
     squadSize = 4,
-    squadsPerBattalion = 3
+    squadsPerBattalion = 3,
+    actorName = 'system'
 ) {
     
     const client = await connectDb();
@@ -311,7 +325,7 @@ export async function autoAssignSquadsForTesting(
 
         await client.query('COMMIT');
 
-        await logAdminAction('auto_assign_squads', 'admin', undefined, undefined, {
+        await logAdminAction('auto_assign_squads', actorName, undefined, undefined, {
             totalPlayers: allUsers.length,
             squadCount: squads.length,
             battalionCount: Math.ceil(squads.length / squadsPerBattalion),
@@ -328,14 +342,14 @@ export async function autoAssignSquadsForTesting(
         };
     } catch (error: any) {
         await client.query('ROLLBACK');
-        await logAdminAction('auto_assign_squads', 'admin', undefined, undefined, { error: error.message }, 'error');
+        await logAdminAction('auto_assign_squads', actorName, undefined, undefined, { error: error.message }, 'error');
         return { success: false, error: error.message };
     } finally {
         await client.end();
     }
 }
 
-export async function importRostersData(csvContent: string) {
+export async function importRostersData(csvContent: string, actorName = 'system') {
     
     const client = await connectDb();
 
@@ -383,11 +397,11 @@ export async function importRostersData(csvContent: string) {
         }
 
         await client.query('COMMIT');
-        await logAdminAction('roster_import', 'admin', undefined, undefined, { count });
+        await logAdminAction('roster_import', actorName, undefined, undefined, { count });
         return { success: true, count };
     } catch (error: any) {
         await client.query('ROLLBACK');
-        await logAdminAction('roster_import', 'admin', undefined, undefined, { error: error.message }, 'error');
+        await logAdminAction('roster_import', actorName, undefined, undefined, { error: error.message }, 'error');
         return { success: false, error: error.message };
     } finally {
         await client.end();

@@ -18,7 +18,11 @@ export async function GET(request: NextRequest) {
     const redirectUri = `${appUrl}/api/auth/line/callback`;
 
     // Encode action and uid into state parameter
-    const state = action === 'bind' && uid ? `bind:${uid}` : 'login';
+    // Support ?redirect=admin for admin page LINE verification
+    const redirectParam = searchParams.get('redirect');
+    const state = action === 'bind' && uid
+        ? `bind:${uid}`
+        : (redirectParam === 'admin' ? 'login|admin' : 'login');
 
     const lineAuthUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
     lineAuthUrl.searchParams.set('response_type', 'code');
