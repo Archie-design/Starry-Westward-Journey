@@ -557,7 +557,7 @@ export default function App() {
   const [showGoldenDicePicker, setShowGoldenDicePicker] = useState(false);
   const [showExchangeConfirm, setShowExchangeConfirm] = useState(false);
 
-  const handleRollDice = (amount: number = 1) => {
+  const handleRollDice = async (amount: number = 1) => {
     if (!userData || isRolling || stepsRemaining > 0) return;
 
     // Golden Dice Flow triggers number picker
@@ -578,44 +578,42 @@ export default function App() {
     setIsRolling(true);
     const newDiceCount = userData.EnergyDice - amount;
 
-    // Fire DB write IMMEDIATELY (not inside setTimeout) so a page refresh can't cancel it
-    const dbWrite = supabase
+    // Await DB write BEFORE animation so a page refresh cannot cancel it.
+    // (Supabase query builder is lazy — HTTP request only fires on await, not on construction.)
+    const { error } = await supabase
       .from('CharacterStats')
       .update({ EnergyDice: newDiceCount })
       .eq('UserID', userData.UserID);
 
-    setTimeout(async () => {
-      const { error } = await dbWrite;
-      if (error) {
-        setIsRolling(false);
-        setModalMessage({ text: '骰子扣除失敗，請重試。', type: 'error' });
-        return;
-      }
-
-      let roll = 0;
-      for (let i = 0; i < amount; i++) {
-        roll += Math.floor(Math.random() * 6) + 1;
-      }
-      if (userData.Role === '白龍馬') roll += 2 * amount;
-      if (userData.Role === '唐三藏' && roleTrait?.isCursed) roll = Math.max(1, Math.floor(roll / 2));
-
-      // Apply multiplier
-      roll = roll * moveMultiplier;
-
-      setStepsRemaining(roll);
-      setMoveMultiplier(1); // Reset after single use
+    if (error) {
       setIsRolling(false);
-      // Use functional update to avoid overwriting concurrent state changes (e.g. combat dice rewards)
-      setUserData(prev => {
-        if (!prev) return null;
-        // Persist steps so a page refresh can restore movement state
-        localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
-          stepsRemaining: roll, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
-        }));
-        return { ...prev, EnergyDice: newDiceCount };
-      });
-      setModalMessage({ text: `修行法輪轉動完成！獲得步數：${roll}`, type: 'success' });
-    }, 800);
+      setModalMessage({ text: '骰子扣除失敗，請重試。', type: 'error' });
+      return;
+    }
+
+    // DB committed — now run the roll animation (pure UI, safe to delay)
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    let roll = 0;
+    for (let i = 0; i < amount; i++) {
+      roll += Math.floor(Math.random() * 6) + 1;
+    }
+    if (userData.Role === '白龍馬') roll += 2 * amount;
+    if (userData.Role === '唐三藏' && roleTrait?.isCursed) roll = Math.max(1, Math.floor(roll / 2));
+
+    roll = roll * moveMultiplier;
+
+    setStepsRemaining(roll);
+    setMoveMultiplier(1);
+    setIsRolling(false);
+    setUserData(prev => {
+      if (!prev) return null;
+      localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
+        stepsRemaining: roll, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
+      }));
+      return { ...prev, EnergyDice: newDiceCount };
+    });
+    setModalMessage({ text: `修行法輪轉動完成！獲得步數：${roll}`, type: 'success' });
   };
 
   const handleExecuteGoldenDice = async (steps: number) => {
@@ -625,30 +623,29 @@ export default function App() {
     setIsRolling(true);
     const newGoldenCount = (userData.GoldenDice || 0) - 1;
 
-    // Fire DB write immediately before the animation delay
-    const dbWrite = supabase
+    const { error } = await supabase
       .from('CharacterStats')
       .update({ GoldenDice: newGoldenCount })
       .eq('UserID', userData.UserID);
 
-    setTimeout(async () => {
-      const { error } = await dbWrite;
-      if (error) {
-        setIsRolling(false);
-        setModalMessage({ text: '萬能奇蹟骰扣除失敗，請重試。', type: 'error' });
-        return;
-      }
-      setStepsRemaining(steps);
-      setUserData(prev => {
-        if (!prev) return null;
-        localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
-          stepsRemaining: steps, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
-        }));
-        return { ...prev, GoldenDice: newGoldenCount };
-      });
+    if (error) {
       setIsRolling(false);
-      setModalMessage({ text: `萬能奇蹟骰已發動！精準鎖定 ${steps} 步！`, type: 'success' });
-    }, 800);
+      setModalMessage({ text: '萬能奇蹟骰扣除失敗，請重試。', type: 'error' });
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 800));
+
+    setStepsRemaining(steps);
+    setUserData(prev => {
+      if (!prev) return null;
+      localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
+        stepsRemaining: steps, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
+      }));
+      return { ...prev, GoldenDice: newGoldenCount };
+    });
+    setIsRolling(false);
+    setModalMessage({ text: `萬能奇蹟骰已發動！精準鎖定 ${steps} 步！`, type: 'success' });
   };
 
   const handleExchangeGoldenDice = async () => {

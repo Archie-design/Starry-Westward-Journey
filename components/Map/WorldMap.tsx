@@ -701,7 +701,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                         {/* 2.5 Entities Layer (Monsters, Chests, Encounters) */}
                         <g style={{ pointerEvents: 'none' }}>
-                            {dbEntities.filter(e => e.type !== 'personal' && getHexDist(initialQ, initialR, e.q, e.r) <= 20).map((e) => {
+                            {dbEntities.filter(e => e.type !== 'personal' && e.type !== 'teammate' && getHexDist(initialQ, initialR, e.q, e.r) <= 20).map((e) => {
                                 const pos = axialToPixelPos(e.q, e.r, DEFAULT_CONFIG.HEX_SIZE_WORLD);
                                 if (e.type === 'monster') {
                                     const imgSrc = getMonsterImageSrc(e.data?.type, e.data?.zone);
