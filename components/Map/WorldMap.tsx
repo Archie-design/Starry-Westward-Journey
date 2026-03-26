@@ -37,6 +37,7 @@ interface WorldMapProps {
     onUpdateUserData: (data: Partial<CharacterStats>) => void;
     onUpdateSteps?: (steps: number) => void;
     onExchangeGoldenDice?: () => void;
+    onSpringHeal?: () => void;
 }
 
 // --- Memoized Static Layer ---
@@ -126,6 +127,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
     onExchangeGoldenDice,
+    onSpringHeal,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -345,6 +347,21 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             setIsPlanningMode(false);
         }
     }, [stepsRemaining]);
+
+    // Spring terrain healing when turn ends on a spring hex.
+    // Only fires when transitioning from >0 steps to 0 (actual turn end), not on initial mount.
+    const prevStepsRef = useRef(stepsRemaining);
+    useEffect(() => {
+        const wasMoving = prevStepsRef.current > 0;
+        prevStepsRef.current = stepsRemaining;
+        if (stepsRemaining === 0 && wasMoving && onSpringHeal) {
+            const currentHex = fullGrid.find(h => h.q === userData.CurrentQ && h.r === userData.CurrentR);
+            if (currentHex?.terrainId === 'spring') {
+                onSpringHeal();
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [stepsRemaining, userData.CurrentQ, userData.CurrentR]);
 
     // --- Event Delegation ---
     const getCurrentPointerHex = useCallback((clientX: number, clientY: number) => {

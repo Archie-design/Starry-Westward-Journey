@@ -28,11 +28,9 @@ function AchievementCard({ def, unlocked_at, isOwner }: {
         const style = RARITY_STYLE[def.rarity];
         const date = unlocked_at.slice(0, 10);
         return (
-            <div className={`relative min-h-[100px] p-4 rounded-2xl border-2 ${style.border} ${style.bg} shadow-lg ${style.glow} flex flex-col gap-1`}>
-                <div className="flex items-center gap-2">
-                    <AchievementIcon def={def} size="md" />
-                    <span className={`font-black text-sm leading-tight ${style.text}`}>{def.name}</span>
-                </div>
+            <div className={`relative min-h-[100px] p-4 rounded-2xl border-2 ${style.border} ${style.bg} shadow-lg ${style.glow} flex flex-col items-center text-center gap-1`}>
+                <AchievementIcon def={def} size="lg" />
+                <span className={`font-black text-sm leading-tight ${style.text} mt-1`}>{def.name}</span>
                 <div className={`text-[10px] font-bold uppercase tracking-widest ${style.text} opacity-70`}>
                     {RARITY_STYLE[def.rarity].label}
                 </div>
@@ -69,7 +67,11 @@ export function AchievementsTab({ achievements, userData }: AchievementsTabProps
 
     const unlockedMap = new Map(achievements.map(a => [a.achievement_id, a.unlocked_at]));
     const unlockedCount = achievements.length;
-    const progressPct = Math.round((unlockedCount / TOTAL_ACHIEVEMENTS) * 100);
+    // Denominator = achievements reachable by this player's role (excludes other roles' exclusives)
+    const achievableCount = ACHIEVEMENTS.filter(
+        def => !def.roleExclusive || def.roleExclusive === userData.Role
+    ).length;
+    const progressPct = Math.round((unlockedCount / achievableCount) * 100);
 
     const filtered = filter === 'all' ? ACHIEVEMENTS : ACHIEVEMENTS.filter(a => a.rarity === filter);
 
@@ -79,7 +81,7 @@ export function AchievementsTab({ achievements, userData }: AchievementsTabProps
             <div className="bg-slate-900 border-2 border-amber-500/30 rounded-3xl p-5 text-center">
                 <p className="text-xs font-black text-amber-400 uppercase tracking-widest mb-1">成就殿堂</p>
                 <p className="text-2xl font-black text-white">
-                    {unlockedCount} <span className="text-slate-500 text-lg">/ {TOTAL_ACHIEVEMENTS}</span>
+                    {unlockedCount} <span className="text-slate-500 text-lg">/ {achievableCount}</span>
                 </p>
                 <div className="mt-3 w-full bg-slate-800 rounded-full h-2">
                     <div

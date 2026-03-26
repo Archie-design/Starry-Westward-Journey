@@ -116,7 +116,7 @@ export async function processCheckInTransaction(
         const currentExp = parseInt(String(userData.Exp), 10) || 0;
         const currentLevel = parseInt(String(userData.Level), 10) || 1;
         const currentCoins = parseInt(String(userData.Coins), 10) || 0;
-        const currentEnergyDice = parseInt(String(userData.EnergyDice), 10) || 0;
+
 
         const newExp = currentExp + finalQuestReward;
         const newLevel = calculateLevelFromExp(newExp);
@@ -203,13 +203,14 @@ export async function processCheckInTransaction(
         // Check achievements after commit (uses its own pg client, does not affect this transaction)
         const newAchievements = await checkAndUnlockAchievements(userId, questId);
 
-        // For punch quests: also trigger achievement check for teammates who already punched today,
-        // so they can unlock team-based achievements (e.g. team_punch) retroactively.
-        if (questId === 'q1' || questId === 'q1_dawn') {
-            const teamCheckClient = await connectDb();
-            try {
-                const todayStr = getLogicalDateStr(new Date().toISOString());
-                const teammatesRes = await teamCheckClient.query(`
+        // Retroactive team achievement checks: fire-and-forget so they don't slow the response.
+        const retroClient = await connectDb();
+        try {
+            const todayStr = getLogicalDateStr(new Date().toISOString());
+
+            // team_punch / team_streak: re-check teammates who already punched today
+            if (questId === 'q1' || questId === 'q1_dawn') {
+                const punchMatesRes = await retroClient.query(`
                     SELECT DISTINCT dl."UserID"
                     FROM "DailyLogs" dl
                     JOIN "CharacterStats" cs ON cs."UserID" = dl."UserID"
@@ -219,13 +220,35 @@ export async function processCheckInTransaction(
                       AND (dl."QuestID" = 'q1' OR dl."QuestID" = 'q1_dawn')
                       AND dl."Timestamp"::date = $2::date
                 `, [userId, todayStr]);
-                // Fire-and-forget: don't await these so they don't slow down the response
-                for (const row of teammatesRes.rows) {
+                for (const row of punchMatesRes.rows) {
                     checkAndUnlockAchievements(row.UserID, questId).catch(() => {});
                 }
-            } finally {
-                await teamCheckClient.end();
             }
+
+            // team_perfect: if ALL team members now have any quest today, re-check everyone else
+            const teamRes = await retroClient.query(`
+                SELECT cs."UserID"
+                FROM "CharacterStats" cs
+                JOIN "CharacterStats" self ON self."UserID" = $1
+                WHERE cs."TeamName" = self."TeamName" AND cs."TeamName" IS NOT NULL
+            `, [userId]);
+            const allTeamIds: string[] = teamRes.rows.map((r: { UserID: string }) => r.UserID);
+            if (allTeamIds.length > 1) {
+                const activeRes = await retroClient.query(`
+                    SELECT DISTINCT "UserID" FROM "DailyLogs"
+                    WHERE "UserID" = ANY($1::text[])
+                      AND "Timestamp"::date = $2::date
+                `, [allTeamIds, todayStr]);
+                const activeIds = new Set(activeRes.rows.map((r: { UserID: string }) => r.UserID));
+                const allActive = allTeamIds.every(id => activeIds.has(id));
+                if (allActive) {
+                    for (const id of allTeamIds) {
+                        if (id !== userId) checkAndUnlockAchievements(id, questId).catch(() => {});
+                    }
+                }
+            }
+        } finally {
+            await retroClient.end();
         }
 
         return { success: true, rewardCapped, user: updatedStatsRes.rows[0], newAchievements };

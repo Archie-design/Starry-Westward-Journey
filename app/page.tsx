@@ -92,6 +92,7 @@ export default function App() {
   // Map state
   const [stepsRemaining, setStepsRemaining] = useState(0);
   const [moveMultiplier, setMoveMultiplier] = useState(1);
+  const [springDiceBonus, setSpringDiceBonus] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
   const [w4Applications, setW4Applications] = useState<W4Application[]>([]);
   const [pendingW4Apps, setPendingW4Apps] = useState<W4Application[]>([]);
@@ -570,6 +571,37 @@ export default function App() {
   const [showGoldenDicePicker, setShowGoldenDicePicker] = useState(false);
   const [showExchangeConfirm, setShowExchangeConfirm] = useState(false);
 
+  const handleSpringHeal = async () => {
+    if (!userData) return;
+    const roleConfig = ROLE_CURE_MAP[userData.Role] || ROLE_CURE_MAP['孫悟空'];
+    const maxHP = userData.MaxHP ?? (roleConfig.baseHP + (userData.Physique ?? 0) * roleConfig.hpScale);
+    const currentHP = userData.HP ?? maxHP;
+    const blessed = Math.random() < 0.5;
+    if (blessed) setSpringDiceBonus(prev => prev + 1);
+
+    if (currentHP < maxHP) {
+      const heal = Math.ceil(maxHP * 0.1);
+      const newHP = Math.min(maxHP, currentHP + heal);
+      const { error } = await supabase
+        .from('CharacterStats')
+        .update({ HP: newHP })
+        .eq('UserID', userData.UserID);
+      if (!error) {
+        setUserData(prev => prev ? { ...prev, HP: newHP } : null);
+        setModalMessage({
+          text: `能量湧泉滋潤！恢復 ${heal} HP${blessed ? '，獲得泉水祝福（下次擲骰 +1）' : ''}`,
+          type: 'success'
+        });
+        return;
+      }
+    }
+
+    setModalMessage({
+      text: `能量湧泉滋潤！靈力已充盈${blessed ? '，獲得泉水祝福（下次擲骰 +1）' : ''}`,
+      type: 'success'
+    });
+  };
+
   const handleRollDice = async (amount: number = 1) => {
     if (!userData || isRolling || stepsRemaining > 0) return;
 
@@ -615,6 +647,11 @@ export default function App() {
     if (userData.Role === '唐三藏' && roleTrait?.isCursed) roll = Math.max(1, Math.floor(roll / 2));
 
     roll = roll * moveMultiplier;
+
+    if (springDiceBonus > 0) {
+      roll += springDiceBonus;
+      setSpringDiceBonus(0);
+    }
 
     setStepsRemaining(roll);
     setMoveMultiplier(1);
@@ -1492,6 +1529,7 @@ dbEntities={mapEntities}
           }}
           onUpdateSteps={setStepsRemaining}
           onExchangeGoldenDice={() => setShowExchangeConfirm(true)}
+          onSpringHeal={handleSpringHeal}
         />
           </div>
         </div>
