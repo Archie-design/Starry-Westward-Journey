@@ -15,6 +15,10 @@ async function generateContentWithRetry(aiClient: GoogleGenAI, options: any, max
         try {
             return await aiClient.models.generateContent(options);
         } catch (error: any) {
+            // Spending cap is a billing issue — retrying won't help, fail immediately
+            const isSpendingCap = error?.message?.includes('RESOURCE_EXHAUSTED') || error?.message?.includes('spending cap');
+            if (isSpendingCap) throw new Error('AI_SPENDING_CAP');
+
             const isRateLimit = error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('TooManyRequests') || error?.message?.includes('quota');
             if (isRateLimit && i < maxRetries - 1) {
                 const waitTime = Math.pow(2, i) * 1000 + Math.random() * 1000; // 1s, 2s, 4s + jitter
@@ -147,7 +151,7 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
 `;
 
         const response = await generateContentWithRetry(ai, {
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
         });
@@ -171,7 +175,10 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
 
     } catch (error: any) {
         console.error('Weekly Review Error:', error);
-        return { success: false, error: error.message };
+        const msg: string = error.message || '';
+        const normalized = (msg === 'AI_SPENDING_CAP' || msg.includes('spending cap') || msg.includes('RESOURCE_EXHAUSTED'))
+            ? 'AI_SPENDING_CAP' : msg;
+        return { success: false, error: normalized };
     } finally {
         await client.end();
     }
@@ -288,7 +295,7 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
 `;
 
         const response = await generateContentWithRetry(ai, {
-            model: 'gemini-2.5-flash',
+            model: 'gemini-2.0-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
         });
@@ -309,7 +316,10 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
 
     } catch (error: any) {
         console.error('Captain Briefing Error:', error);
-        return { success: false, error: error.message };
+        const msg: string = error.message || '';
+        const normalized = (msg === 'AI_SPENDING_CAP' || msg.includes('spending cap') || msg.includes('RESOURCE_EXHAUSTED'))
+            ? 'AI_SPENDING_CAP' : msg;
+        return { success: false, error: normalized };
     } finally {
         await client.end();
     }

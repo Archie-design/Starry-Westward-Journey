@@ -277,6 +277,17 @@ export default function App() {
     }
   };
 
+  const formatGeminiError = (err?: string): string => {
+    if (!err) return 'AI 功能暫時無法使用，請稍後再試';
+    if (err === 'AI_SPENDING_CAP' || err.includes('spending cap') || err.includes('RESOURCE_EXHAUSTED'))
+      return 'AI 功能暫時關閉（API 費用已達上限），請聯絡版主處理';
+    if (err.includes('Rate Limit') || err.includes('quota'))
+      return 'AI 服務繁忙，請稍候片刻再試';
+    if (err.includes('GEMINI_API_KEY'))
+      return 'AI 功能未設定，請聯絡版主';
+    return 'AI 功能暫時無法使用，請稍後再試';
+  };
+
   const handleOpenWeeklyTab = async () => {
     setActiveTab('weekly');
     if (!userData?.UserID || weeklyReview !== null || isLoadingReview) return;
@@ -289,14 +300,16 @@ export default function App() {
     if (![1, 4, 6].includes(twDayOfWeek)) return;
     setIsLoadingReview(true);
     try {
+      // Stagger concurrent requests: random 0–8s delay to avoid 800 users hitting 15 RPM limit simultaneously
+      await new Promise(r => setTimeout(r, Math.random() * 8000));
       const res = await generateWeeklyReview(userData.UserID);
       if (res.success && res.review) {
         setWeeklyReview(res.review);
       } else if (!res.success && userData?.IsGM) {
-        setModalMessage({ text: `AI 週報載入失敗：${res.error}`, type: 'error' });
+        setModalMessage({ text: formatGeminiError(res.error), type: 'error' });
       }
     } catch (e: any) {
-      if (userData?.IsGM) setModalMessage({ text: `AI 週報異常：${e.message}`, type: 'error' });
+      if (userData?.IsGM) setModalMessage({ text: formatGeminiError(e.message), type: 'error' });
     } finally {
       setIsLoadingReview(false);
     }
@@ -316,10 +329,10 @@ export default function App() {
       if (res.success && res.briefing) {
         setAiBriefing(res.briefing);
       } else {
-        setModalMessage({ text: res.error || 'AI 分析失敗，請稍後再試', type: 'error' });
+        setModalMessage({ text: formatGeminiError(res.error), type: 'error' });
       }
     } catch (e: any) {
-      setModalMessage({ text: '系統異常：' + e.message, type: 'error' });
+      setModalMessage({ text: formatGeminiError(e.message), type: 'error' });
     } finally {
       setIsLoadingBriefing(false);
     }
