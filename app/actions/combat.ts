@@ -45,7 +45,11 @@ export async function resolveCombat(params: CombatParams) {
     const effectiveLevel = Math.max(monsterLevel, Math.floor(attacker.Level * 0.75));
     let monsterATK = effectiveLevel * 12;
     let monsterDEF = effectiveLevel * 8;
-    let monsterHP = monsterData.hp || 100;
+    // Recalculate HP from effectiveLevel so it scales with the player, same formula as admin.ts generation
+    const isEliteMonster = monsterData.type === 'elite';
+    let monsterHP = isEliteMonster
+        ? Math.round((50 + effectiveLevel * 15) * 1.5)
+        : 50 + effectiveLevel * 15;
 
     // 六維素質對應難度加成：屬性越高，面對的怪物稍強（戰鬥結算時動態套用，不改 DB）
     // 悟性/神識 → 怪物 ATK，根骨/潛力 → 怪物 DEF，魅力/福緣 → 怪物 HP
