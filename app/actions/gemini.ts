@@ -8,6 +8,27 @@ import type { WeeklyReview, CaptainBriefing } from '@/types';
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// API 重試機制 (Exponential Backoff + Jitter) 以處理 429 TooManyRequests
+// ─────────────────────────────────────────────────────────────────────────────
+async function generateContentWithRetry(aiClient: GoogleGenAI, options: any, maxRetries = 4) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await aiClient.models.generateContent(options);
+        } catch (error: any) {
+            const isRateLimit = error?.status === 429 || error?.message?.includes('429') || error?.message?.includes('TooManyRequests') || error?.message?.includes('quota');
+            if (isRateLimit && i < maxRetries - 1) {
+                const waitTime = Math.pow(2, i) * 1000 + Math.random() * 1000; // 1s, 2s, 4s + jitter
+                console.warn(`[Gemini API] Rate Limit Exceeded. Retrying in ${Math.round(waitTime)}ms (Attempt ${i + 1})...`);
+                await new Promise(resolve => setTimeout(resolve, waitTime));
+                continue;
+            }
+            throw error;
+        }
+    }
+    throw new Error('API Rate Limit Exceeded: 已達最大重試次數，請稍候重試');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AI 修行週報
 // ─────────────────────────────────────────────────────────────────────────────
 export async function generateWeeklyReview(
@@ -125,7 +146,7 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
 }
 `;
 
-        const response = await ai.models.generateContent({
+        const response = await generateContentWithRetry(ai, {
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
@@ -266,7 +287,7 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
 }
 `;
 
-        const response = await ai.models.generateContent({
+        const response = await generateContentWithRetry(ai, {
             model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
