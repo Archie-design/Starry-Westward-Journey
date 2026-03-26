@@ -107,8 +107,11 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
         const chanceChest = worldState === 'good' ? 0.05 : worldState === 'bad' ? 0.01 : 0.02;
         const chanceMonster = worldState === 'good' ? 0.01 : worldState === 'bad' ? 0.08 : 0.02;
 
-        // Global caps to prevent flooding
-        const MAX_MONSTERS = worldState === 'bad' ? 60 : worldState === 'normal' ? 30 : 12;
+        // Global caps — scale with active player count, capped at 150 to protect map density
+        const BASE_MONSTERS = Math.min(activeUsersCount * 2, 150);
+        const MAX_MONSTERS = worldState === 'bad'    ? BASE_MONSTERS * 2
+                           : worldState === 'normal' ? BASE_MONSTERS
+                           : Math.floor(BASE_MONSTERS * 0.4); // good: fewer monsters, more chests
         const MAX_CHESTS   = worldState === 'good' ? 40 : worldState === 'normal' ? 25 : 10;
         let monsterCount = 0;
         let chestCount = 0;

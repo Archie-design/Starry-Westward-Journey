@@ -44,8 +44,14 @@ export async function resolveCombat(params: CombatParams) {
     // effectiveLevel tracks player level at 75% floor — ensures mid/late-game players still feel pressure
     const effectiveLevel = Math.max(monsterLevel, Math.floor(attacker.Level * 0.75));
     let monsterATK = effectiveLevel * 12;
-    const monsterDEF = effectiveLevel * 8;
+    let monsterDEF = effectiveLevel * 8;
     let monsterHP = monsterData.hp || 100;
+
+    // 六維素質對應難度加成：屬性越高，面對的怪物稍強（戰鬥結算時動態套用，不改 DB）
+    // 悟性/神識 → 怪物 ATK，根骨/潛力 → 怪物 DEF，魅力/福緣 → 怪物 HP
+    monsterATK += Math.floor((attacker.Savvy ?? 0) / 15) + Math.floor((attacker.Spirit ?? 0) / 20);
+    monsterDEF += Math.floor((attacker.Physique ?? 0) / 15) + Math.floor((attacker.Potential ?? 0) / 20);
+    monsterHP  += Math.floor((attacker.Charisma ?? 0) / 10) * 30 + Math.floor((attacker.Luck ?? 0) / 10) * 20;
 
     // 4. Combo Calculation (AP to Strikes)
     let totalPlayerDamage = 0;
