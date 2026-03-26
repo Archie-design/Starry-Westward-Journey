@@ -148,18 +148,21 @@ export async function processCheckInTransaction(
             goldenDiceGain += 1;
         }
 
-        const newEnergyDice = currentEnergyDice + questDice + bonusDice;
+        const diceGain = questDice + bonusDice;
 
+        // Use relative update for EnergyDice to prevent race conditions with concurrent
+        // dice rolls (which also write EnergyDice). An absolute write would silently
+        // overwrite concurrent deductions, causing dice to "reset" to the pre-roll value.
         let updateQuery = `
-      UPDATE "CharacterStats" 
-      SET 
-        "Exp" = $1, 
-        "Level" = $2, 
+      UPDATE "CharacterStats"
+      SET
+        "Exp" = $1,
+        "Level" = $2,
         "Coins" = $3,
-        "EnergyDice" = $4, 
+        "EnergyDice" = COALESCE("EnergyDice", 0) + $4,
         "LastCheckIn" = $5
     `;
-        const updateParams: any[] = [newExp, newLevel, newCoins, newEnergyDice, logicalTodayStr, userId];
+        const updateParams: any[] = [newExp, newLevel, newCoins, diceGain, logicalTodayStr, userId];
 
         if (goldenDiceGain > 0) {
             updateQuery += `, "GoldenDice" = COALESCE("GoldenDice", 0) + ${goldenDiceGain}`;
