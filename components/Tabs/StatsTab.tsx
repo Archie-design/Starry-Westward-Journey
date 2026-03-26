@@ -35,8 +35,13 @@ interface StatsTabProps {
 export function StatsTab({ userData, roleTrait }: StatsTabProps) {
     if (!roleTrait) return null;
 
-    const displayAge = userData.Birthday
-        ? Math.floor((Date.now() - new Date(userData.Birthday).getTime()) / (365.25 * 24 * 3600 * 1000))
+    // Normalize Birthday: DB may store ISO "1991-09-18" or full Date.toString() string
+    const birthdayDate = userData.Birthday ? new Date(userData.Birthday) : null;
+    const birthdayDisplay = birthdayDate && !isNaN(birthdayDate.getTime())
+        ? birthdayDate.toLocaleDateString('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        : null;
+    const displayAge = birthdayDate && !isNaN(birthdayDate.getTime())
+        ? Math.floor((Date.now() - birthdayDate.getTime()) / (365.25 * 24 * 3600 * 1000))
         : null;
 
     return (
@@ -68,8 +73,8 @@ export function StatsTab({ userData, roleTrait }: StatsTabProps) {
                     <span className="text-[10px] font-black text-slate-500 tracking-widest uppercase ml-1">生日（金剛杖資格驗證）</span>
                 </div>
                 <span className="text-white font-bold">
-                    {userData.Birthday
-                        ? `${userData.Birthday}（${displayAge} 歲）`
+                    {birthdayDisplay
+                        ? `${birthdayDisplay}（${displayAge} 歲）`
                         : <span className="text-slate-500">尚未設定</span>}
                 </span>
             </div>

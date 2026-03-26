@@ -203,6 +203,31 @@ export async function processCheckInTransaction(
         // Check achievements after commit (uses its own pg client, does not affect this transaction)
         const newAchievements = await checkAndUnlockAchievements(userId, questId);
 
+        // For punch quests: also trigger achievement check for teammates who already punched today,
+        // so they can unlock team-based achievements (e.g. team_punch) retroactively.
+        if (questId === 'q1' || questId === 'q1_dawn') {
+            const teamCheckClient = await connectDb();
+            try {
+                const todayStr = getLogicalDateStr(new Date().toISOString());
+                const teammatesRes = await teamCheckClient.query(`
+                    SELECT DISTINCT dl."UserID"
+                    FROM "DailyLogs" dl
+                    JOIN "CharacterStats" cs ON cs."UserID" = dl."UserID"
+                    JOIN "CharacterStats" self ON self."UserID" = $1
+                    WHERE cs."TeamName" = self."TeamName"
+                      AND dl."UserID" != $1
+                      AND (dl."QuestID" = 'q1' OR dl."QuestID" = 'q1_dawn')
+                      AND dl."Timestamp"::date = $2::date
+                `, [userId, todayStr]);
+                // Fire-and-forget: don't await these so they don't slow down the response
+                for (const row of teammatesRes.rows) {
+                    checkAndUnlockAchievements(row.UserID, questId).catch(() => {});
+                }
+            } finally {
+                await teamCheckClient.end();
+            }
+        }
+
         return { success: true, rewardCapped, user: updatedStatsRes.rows[0], newAchievements };
     } catch (error: any) {
         await client.query('ROLLBACK');
