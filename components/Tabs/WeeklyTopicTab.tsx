@@ -27,8 +27,12 @@ const W4_STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function WeeklyTopicTab({ systemSettings, logs, currentWeeklyMonday, isTopicDone, temporaryQuests, userInventory, teamInventory = [], w4Applications, weeklyReview, isLoadingReview, onCheckIn, onUndo, onSubmitW4 }: WeeklyTopicTabProps) {
-    // a4 (幌金繩)：t 開頭定課 ×1.5（與 quest.ts 伺服器邏輯一致）
-    const topicExp = Math.ceil(1000 * (teamInventory.includes('a4') ? 1.5 : 1));
+    // a1/a5：個人總經驗 ×1.2（與 quest.ts 伺服器邏輯一致，適用所有副本）
+    const baseMultiplier = (userInventory.includes('a1') || userInventory.includes('a5')) ? 1.2 : 1;
+    // t1 主題親證不受 a4 影響
+    const topicExp = Math.ceil(1000 * baseMultiplier);
+    // a4 (幌金繩)：參加心成活動（w2）×1.5（與 quest.ts 伺服器邏輯一致）
+    const w2Multiplier = baseMultiplier * (teamInventory.includes('a4') ? 1.5 : 1);
 
     const [showW4Form, setShowW4Form] = useState(false);
     const [w4Target, setW4Target] = useState('');
@@ -111,7 +115,7 @@ export function WeeklyTopicTab({ systemSettings, logs, currentWeeklyMonday, isTo
                                 <p className="text-sm text-slate-400 font-bold italic">{q.sub}</p>
                             </div>
                             <div className="text-right bg-blue-400/10 px-3 py-2 rounded-xl">
-                                <div className="text-sm font-black text-blue-400">+{q.reward} 修為</div>
+                                <div className="text-sm font-black text-blue-400">+{Math.ceil(q.reward * (q.id === 'w2' ? w2Multiplier : baseMultiplier))} 修為</div>
                                 <div className="text-xs font-bold text-yellow-400">+{Math.floor(q.reward * 0.1)} 🪙</div>
                             </div>
                         </div>
@@ -144,7 +148,7 @@ export function WeeklyTopicTab({ systemSettings, logs, currentWeeklyMonday, isTo
                         <p className="text-sm text-slate-400 font-bold italic">訪談成功加分 · 三級審核制</p>
                     </div>
                     <div className="text-right bg-pink-500/10 px-3 py-2 rounded-xl">
-                        <div className="text-sm font-black text-pink-400">+1000 修為</div>
+                        <div className="text-sm font-black text-pink-400">+{Math.ceil(1000 * baseMultiplier)} 修為</div>
                         <div className="text-xs font-bold text-yellow-400">+100 🪙</div>
                     </div>
                 </div>
@@ -237,7 +241,7 @@ export function WeeklyTopicTab({ systemSettings, logs, currentWeeklyMonday, isTo
                                 <div className="text-5xl">🪬</div>
                                 <div className="text-left">
                                     <h4 className="text-xl font-black text-white">親證圓夢計劃</h4>
-                                    <p className="text-xs text-purple-300 font-bold mt-1">持有定風珠專屬 · 每週上限 3 次 · 每次 +300 修為 / +30 🪙</p>
+                                    <p className="text-xs text-purple-300 font-bold mt-1">持有定風珠專屬 · 每週上限 3 次 · 每次 +{Math.ceil(300 * baseMultiplier)} 修為 / +30 🪙</p>
                                 </div>
                             </div>
                             <div className="flex justify-between items-center px-2">
@@ -286,7 +290,7 @@ export function WeeklyTopicTab({ systemSettings, logs, currentWeeklyMonday, isTo
                                         {tq.desc && <p className="text-xs text-slate-400 mt-1 italic">{tq.desc}</p>}
                                     </div>
                                     <div className="text-right bg-emerald-400/10 px-3 py-2 rounded-xl">
-                                        <div className="text-sm font-black text-emerald-400">+{tq.reward} 修為</div>
+                                        <div className="text-sm font-black text-emerald-400">+{Math.ceil(tq.reward * baseMultiplier)} 修為</div>
                                         <div className="text-xs font-bold text-yellow-400">+{Math.floor(tq.reward * 0.1)} 🪙</div>
                                     </div>
                                 </div>

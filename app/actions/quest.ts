@@ -103,8 +103,8 @@ export async function processCheckInTransaction(
         // a3: 七彩袈裟 — 全隊打拳（q1 / q1_dawn）×1.5
         if (teamInventory.includes('a3') && (questId === 'q1' || questId === 'q1_dawn')) expMultiplier *= 1.5;
 
-        // a4: 幌金繩 — 體系活動（t 開頭）×1.5
-        if (teamInventory.includes('a4') && questId.startsWith('t')) expMultiplier *= 1.5;
+        // a4: 幌金繩 — 參加心成活動（w2）×1.5
+        if (teamInventory.includes('a4') && questId.startsWith('w2')) expMultiplier *= 1.5;
 
         let finalQuestReward = Math.ceil(baseReward * expMultiplier);
 
