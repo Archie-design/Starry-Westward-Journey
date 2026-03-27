@@ -511,6 +511,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             return;
                         }
                         if (stepDist === 1) {
+                            if (TERRAIN_TYPES[hex.terrainId]?.impassable) {
+                                onShowMessage('此地形無法通行！', 'error');
+                                return;
+                            }
                             const cursedMultiplier = (roleTrait?.name === '豬八戒' && roleTrait?.isCursed) ? 1.5 : 1;
                             const newCost = Math.ceil((plannedPath.length + 1) * cursedMultiplier);
                             if (newCost <= stepsRemaining) {
@@ -543,6 +547,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         const targetHexData = fullGrid.find(h => h.q === targetQ && h.r === targetR);
                         if (!targetHexData) return;
 
+                        // Block impassable terrain (世界樹根 / 世界樹盤根 etc.)
+                        if (TERRAIN_TYPES[targetHexData.terrainId]?.impassable) {
+                            onShowMessage('此地形無法通行！', 'error');
+                            return;
+                        }
+
                         const dist = getHexDist(userData.CurrentQ, userData.CurrentR, targetQ, targetR);
                         if (dist === 0) return;
 
@@ -563,6 +573,22 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                             for (let i = 1; i < path.length; i++) {
                                 const step = path[i];
+
+                                // Impassable terrain: stop at previous step
+                                const stepHex = fullGrid.find(h => h.q === step.q && h.r === step.r);
+                                if (TERRAIN_TYPES[stepHex?.terrainId]?.impassable) {
+                                    const prevStep = path[i - 1];
+                                    actualTargetQ = prevStep.q;
+                                    actualTargetR = prevStep.r;
+                                    const stepDist = getHexDist(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
+                                    if (stepDist === 0) {
+                                        onShowMessage('前方道路被阻擋！', 'error');
+                                        return;
+                                    }
+                                    actualCost = roleTrait?.name === '豬八戒' && roleTrait?.isCursed ? Math.ceil(stepDist * 1.5) : stepDist;
+                                    break;
+                                }
+
                                 const monsterNearby = allEntitiesForCollision.find(e => e.type === 'monster' && getHexDist(step.q, step.r, e.q, e.r) <= 1);
                                 if (monsterNearby) {
                                     // Intercept! Stop at this step.
