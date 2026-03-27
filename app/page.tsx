@@ -40,6 +40,7 @@ import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Appli
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
 import { handleChestOpen } from '@/app/actions/map';
 import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
+import { saveEnergyDice, saveHP } from '@/app/actions/player';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -582,10 +583,7 @@ export default function App() {
     if (currentHP < maxHP) {
       const heal = Math.ceil(maxHP * 0.1);
       const newHP = Math.min(maxHP, currentHP + heal);
-      const { error } = await supabase
-        .from('CharacterStats')
-        .update({ HP: newHP })
-        .eq('UserID', userData.UserID);
+      const { error } = await saveHP(userData.UserID, newHP);
       if (!error) {
         setUserData(prev => prev ? { ...prev, HP: newHP } : null);
         setModalMessage({
@@ -624,11 +622,8 @@ export default function App() {
     const newDiceCount = userData.EnergyDice - amount;
 
     // Await DB write BEFORE animation so a page refresh cannot cancel it.
-    // (Supabase query builder is lazy — HTTP request only fires on await, not on construction.)
-    const { error } = await supabase
-      .from('CharacterStats')
-      .update({ EnergyDice: newDiceCount })
-      .eq('UserID', userData.UserID);
+    // Uses server action (service role key) to bypass RLS and guarantee persistence.
+    const { error } = await saveEnergyDice(userData.UserID, newDiceCount);
 
     if (error) {
       setIsRolling(false);
