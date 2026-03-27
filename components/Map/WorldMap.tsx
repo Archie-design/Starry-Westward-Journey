@@ -549,7 +549,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         if (!targetHexData) return;
 
                         // Block impassable terrain (世界樹根 / 世界樹盤根 etc.)
-                        if (TERRAIN_TYPES[targetHexData.terrainId]?.impassable) {
+                        if (TERRAIN_TYPES[targetHexData.terrainId ?? '']?.impassable) {
                             onShowMessage('此地形無法通行！', 'error');
                             return;
                         }
