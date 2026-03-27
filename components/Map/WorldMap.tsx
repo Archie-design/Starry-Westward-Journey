@@ -577,7 +577,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                                 // Impassable terrain: stop at previous step
                                 const stepHex = fullGrid.find(h => h.q === step.q && h.r === step.r);
-                                if (TERRAIN_TYPES[stepHex?.terrainId]?.impassable) {
+                                if (TERRAIN_TYPES[stepHex?.terrainId ?? '']?.impassable) {
                                     const prevStep = path[i - 1];
                                     actualTargetQ = prevStep.q;
                                     actualTargetR = prevStep.r;
