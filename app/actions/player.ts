@@ -24,3 +24,24 @@ export async function saveHP(userId: string, newHP: number) {
     .eq('UserID', userId);
   return { error: error?.message };
 }
+
+/** 更新座標（傳送門傳送） */
+export async function savePosition(userId: string, q: number, r: number) {
+  const { error } = await supabase
+    .from('CharacterStats')
+    .update({ CurrentQ: q, CurrentR: r })
+    .eq('UserID', userId);
+  return { error: error?.message };
+}
+
+/** 儲存地圖地形（地圖編輯器） */
+export async function saveWorldMap(terrain: Record<string, string>, config: { corridorL: number; corridorW: number }) {
+  const { error } = await supabase
+    .from('world_maps')
+    .upsert({
+      id: 'main_world_map',
+      data: { terrain, config },
+      updated_at: new Date().toISOString(),
+    });
+  return { error: error?.message };
+}

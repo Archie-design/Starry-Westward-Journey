@@ -73,7 +73,8 @@ export function AchievementsTab({ achievements, userData }: AchievementsTabProps
     ).length;
     const progressPct = Math.round((unlockedCount / achievableCount) * 100);
 
-    const filtered = filter === 'all' ? ACHIEVEMENTS : ACHIEVEMENTS.filter(a => a.rarity === filter);
+    const filtered = (filter === 'all' ? ACHIEVEMENTS : ACHIEVEMENTS.filter(a => a.rarity === filter))
+        .filter(def => !def.roleExclusive || def.roleExclusive === userData.Role);
 
     return (
         <div className="space-y-4 animate-in slide-in-from-bottom-4 duration-500">

@@ -241,6 +241,13 @@ export const TERRAIN_TYPES: Record<string, any> = {
     roots: { id: 'roots', name: '世界樹根', url: '/assets/terrains/The Sanctuary/Roots.png', scale: 1.15, vOffset: 0.0, color: '#064e3b', effect: '【阻擋】無法通行。中心裝飾與障礙。', impassable: true },
     spring: { id: 'spring', name: '能量湧泉', url: '/assets/terrains/The Sanctuary/Spring of Energy.png', scale: 1.15, vOffset: 0.0, color: '#0d3320', effect: '【特殊】回復 10% HP，擲骰 +1。' },
     roots_yggdrasil: { id: 'roots_yggdrasil', name: '世界樹盤根', url: '/assets/terrains/The Sanctuary/Roots of Yggdrasil.png', scale: 1.15, vOffset: 0.0, color: '#064e3b', effect: '【地障】自然形成的地形障礙。', impassable: true },
+    portal: { id: 'portal', name: '傳送門', url: '/assets/terrains/The Sanctuary/Portal.png', scale: 1.15, vOffset: 0.0, color: '#6366f1', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送至六大區入口。' },
+    portal_return_pride:    { id: 'portal_return_pride',    name: '回歸傳送門（傲慢冰川）', url: '/assets/terrains/The Sanctuary/Portal Return Pride.png',    scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
+    portal_return_doubt:    { id: 'portal_return_doubt',    name: '回歸傳送門（迷途森林）', url: '/assets/terrains/The Sanctuary/Portal Return Doubt.png',    scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
+    portal_return_anger:    { id: 'portal_return_anger',    name: '回歸傳送門（焦熱荒原）', url: '/assets/terrains/The Sanctuary/Portal Return Anger.png',    scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
+    portal_return_greed:    { id: 'portal_return_greed',    name: '回歸傳送門（慾望泥沼）', url: '/assets/terrains/The Sanctuary/Portal Return Greed.png',    scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
+    portal_return_delusion: { id: 'portal_return_delusion', name: '回歸傳送門（虛妄流沙）', url: '/assets/terrains/The Sanctuary/Portal Return Delusion.png', scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
+    portal_return_chaos:    { id: 'portal_return_chaos',    name: '回歸傳送門（混沌迷霧）', url: '/assets/terrains/The Sanctuary/Portal Return Chaos.png',    scale: 1.15, vOffset: 0.0, color: '#a855f7', effect: '【特殊】完成 3 個定課，消耗 1 骰子傳送回本心草原。' },
     snow_path: { id: 'snow_path', name: '積雪山徑', url: '/assets/terrains/Arrogance Peak/Snowy Path.png', scale: 1.15, vOffset: 0.0, color: '#e2e8f0', effect: '【移動】消耗 1 點。' },
     ice_wall: { id: 'ice_wall', name: '冰封絕壁', url: '/assets/terrains/Arrogance Peak/Ice Wall.png', scale: 1.15, vOffset: 0.0, color: '#94a3b8', effect: '【阻擋】高度差 > 2。非飛行無法通過。' },
     thin_air: { id: 'thin_air', name: '稀薄空氣', url: '/assets/terrains/Arrogance Peak/Thin Air.png', scale: 1.15, vOffset: 0.0, color: '#cbd5e1', effect: '【減益】本回合攻擊力下降 20%。' },
@@ -274,11 +281,43 @@ export const TERRAIN_TYPES: Record<string, any> = {
 };
 
 export const zoneWeights: Record<string, string[]> = {
-    center: ['grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'roots', 'spring', 'roots_yggdrasil'],
-    pride: ['snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'ice_wall', 'thin_air', 'slippery_slope', 'cliffs_pride'],
-    doubt: ['dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'ancient_tree', 'fog', 'thorns', 'wall_thorns'],
-    anger: ['cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'obsidian', 'lava', 'geyser', 'abyssal_magma'],
-    greed: ['wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'rotten_vines', 'deep_bog', 'mimic', 'corrupted_vines'],
-    delusion: ['sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sandstorm_wall', 'quicksand', 'mirage', 'chaos_storm_barr'],
-    chaos: ['ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'glitch_wall', 'entropy_field', 'random_anomaly', 'void']
+    center: ['grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'grass', 'roots', 'spring', 'roots_yggdrasil', 'portal'],
+    pride:    ['snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'snow_path', 'ice_wall', 'thin_air', 'slippery_slope', 'cliffs_pride', 'portal_return_pride'],
+    doubt:    ['dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'dark_trail', 'ancient_tree', 'fog', 'thorns', 'wall_thorns', 'portal_return_doubt'],
+    anger:    ['cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'cracked_earth', 'obsidian', 'lava', 'geyser', 'abyssal_magma', 'portal_return_anger'],
+    greed:    ['wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'wetland', 'rotten_vines', 'deep_bog', 'mimic', 'corrupted_vines', 'portal_return_greed'],
+    delusion: ['sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sand_dune', 'sandstorm_wall', 'quicksand', 'mirage', 'chaos_storm_barr', 'portal_return_delusion'],
+    chaos:    ['ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'ash_path', 'glitch_wall', 'entropy_field', 'random_anomaly', 'void', 'portal_return_chaos']
 };
+
+export const PORTAL_DESTINATIONS: Record<string, { name: string }> = {
+    pride:    { name: '傲慢冰川' },
+    doubt:    { name: '迷途森林' },
+    anger:    { name: '焦熱荒原' },
+    greed:    { name: '慾望泥沼' },
+    delusion: { name: '虛妄流沙' },
+    chaos:    { name: '混沌迷霧' },
+};
+
+/**
+ * 根據地圖幾何動態計算各區子區 0 的世界座標入口點。
+ * 與 WorldMap.tsx / app/map/page.tsx 的 sideData 邏輯保持一致。
+ */
+export function getZoneEntryPoint(zoneId: string, corridorL: number): { q: number; r: number } {
+    const R_hub = DEFAULT_CONFIG.CENTER_SIDE - 1;
+    const S_s = DEFAULT_CONFIG.SUBZONE_SIDE;
+    const centerIdx = Math.floor(DEFAULT_CONFIG.CENTER_SIDE / 2);
+    const sides: Record<string, { start: { q: number; r: number }; step: { q: number; r: number }; out: { q: number; r: number } }> = {
+        pride:    { start: { q: 0,     r: -R_hub }, step: { q: 1,  r: 0  }, out: { q: 1,  r: -1 } },
+        doubt:    { start: { q: R_hub, r: -R_hub }, step: { q: 0,  r: 1  }, out: { q: 1,  r: 0  } },
+        anger:    { start: { q: R_hub, r: 0      }, step: { q: -1, r: 1  }, out: { q: 0,  r: 1  } },
+        greed:    { start: { q: 0,     r: R_hub  }, step: { q: -1, r: 0  }, out: { q: -1, r: 1  } },
+        delusion: { start: { q: -R_hub,r: R_hub  }, step: { q: 0,  r: -1 }, out: { q: -1, r: 0  } },
+        chaos:    { start: { q: -R_hub,r: 0      }, step: { q: 1,  r: -1 }, out: { q: 0,  r: -1 } },
+    };
+    const side = sides[zoneId];
+    if (!side) return { q: 0, r: 0 };
+    const hubExitQ = side.start.q + side.step.q * centerIdx + side.out.q * corridorL;
+    const hubExitR = side.start.r + side.step.r * centerIdx + side.out.r * corridorL;
+    return { q: hubExitQ + side.out.q * S_s, r: hubExitR + side.out.r * S_s };
+}

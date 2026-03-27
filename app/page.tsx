@@ -12,7 +12,7 @@ import {
 import { CharacterStats, DailyLog, Quest, SystemSettings, TopicHistory, TemporaryQuest, W4Application, AdminLog, Testimony, FinePaymentRecord, AchievementRecord } from '@/types';
 import { getLogicalDateStr, getWeeklyMonday } from '@/lib/utils/time';
 import { standardizePhone } from '@/lib/utils/phone';
-import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, calculateLevelFromExp, ROLE_GROWTH_RATES } from '@/lib/constants';
+import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, calculateLevelFromExp, ROLE_GROWTH_RATES, PORTAL_DESTINATIONS, getZoneEntryPoint } from '@/lib/constants';
 import { WorldMap } from '@/components/Map/WorldMap';
 
 import { Header } from '@/components/Layout/Header';
@@ -40,7 +40,7 @@ import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Appli
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
 import { handleChestOpen } from '@/app/actions/map';
 import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
-import { saveEnergyDice, saveHP } from '@/app/actions/player';
+import { saveEnergyDice, saveHP, savePosition } from '@/app/actions/player';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
@@ -94,6 +94,8 @@ export default function App() {
   const [stepsRemaining, setStepsRemaining] = useState(0);
   const [moveMultiplier, setMoveMultiplier] = useState(1);
   const [springDiceBonus, setSpringDiceBonus] = useState(0);
+  const [showPortalModal, setShowPortalModal] = useState(false);
+  const [showPortalReturnModal, setShowPortalReturnModal] = useState(false);
   const [isRolling, setIsRolling] = useState(false);
   const [w4Applications, setW4Applications] = useState<W4Application[]>([]);
   const [pendingW4Apps, setPendingW4Apps] = useState<W4Application[]>([]);
@@ -598,6 +600,71 @@ export default function App() {
       text: `能量湧泉滋潤！靈力已充盈${blessed ? '，獲得泉水祝福（下次擲骰 +1）' : ''}`,
       type: 'success'
     });
+  };
+
+  const handlePortalUse = () => setShowPortalModal(true);
+  const handlePortalReturn = () => setShowPortalReturnModal(true);
+
+  const _portalCheck = (setter: (v: boolean) => void) => {
+    const uniqueDaily = new Set(todayCompletedQuestIds.filter(id => /^q[1-9]$/.test(id)));
+    if (uniqueDaily.size < 3) {
+      setModalMessage({ text: '今日定課未達 3 門，傳送門尚未開啟！', type: 'error' });
+      setter(false);
+      return false;
+    }
+    if ((userData?.EnergyDice ?? 0) < 1) {
+      setModalMessage({ text: '能量骰子不足，無法啟動傳送門！', type: 'error' });
+      setter(false);
+      return false;
+    }
+    return true;
+  };
+
+  const handlePortalTeleport = async (zoneId: string) => {
+    if (!userData) return;
+    const destInfo = PORTAL_DESTINATIONS[zoneId];
+    if (!destInfo) return;
+    if (!_portalCheck(setShowPortalModal)) return;
+
+    const { q, r } = getZoneEntryPoint(zoneId, corridorL);
+    const newDiceCount = userData.EnergyDice - 1;
+    const { error: diceErr } = await saveEnergyDice(userData.UserID, newDiceCount);
+    if (diceErr) {
+      setModalMessage({ text: '傳送失敗，骰子扣除異常。', type: 'error' });
+      setShowPortalModal(false);
+      return;
+    }
+    const { error: posErr } = await savePosition(userData.UserID, q, r);
+    if (posErr) {
+      setModalMessage({ text: '傳送失敗，法陣受阻，請重試。', type: 'error' });
+      setShowPortalModal(false);
+      return;
+    }
+    setUserData(prev => prev ? { ...prev, CurrentQ: q, CurrentR: r, EnergyDice: newDiceCount } : null);
+    setShowPortalModal(false);
+    setModalMessage({ text: `已傳送至${destInfo.name}入口！消耗 1 顆能量骰子。`, type: 'success' });
+  };
+
+  const handlePortalReturnConfirm = async () => {
+    if (!userData) return;
+    if (!_portalCheck(setShowPortalReturnModal)) return;
+
+    const newDiceCount = userData.EnergyDice - 1;
+    const { error: diceErr } = await saveEnergyDice(userData.UserID, newDiceCount);
+    if (diceErr) {
+      setModalMessage({ text: '傳送失敗，骰子扣除異常。', type: 'error' });
+      setShowPortalReturnModal(false);
+      return;
+    }
+    const { error: posErr } = await savePosition(userData.UserID, 0, 0);
+    if (posErr) {
+      setModalMessage({ text: '傳送失敗，法陣受阻，請重試。', type: 'error' });
+      setShowPortalReturnModal(false);
+      return;
+    }
+    setUserData(prev => prev ? { ...prev, CurrentQ: 0, CurrentR: 0, EnergyDice: newDiceCount } : null);
+    setShowPortalReturnModal(false);
+    setModalMessage({ text: '已傳送回本心草原！消耗 1 顆能量骰子。', type: 'success' });
   };
 
   const handleRollDice = async (amount: number = 1) => {
@@ -1525,6 +1592,8 @@ dbEntities={mapEntities}
           onUpdateSteps={setStepsRemaining}
           onExchangeGoldenDice={() => setShowExchangeConfirm(true)}
           onSpringHeal={handleSpringHeal}
+          onPortalUse={handlePortalUse}
+          onPortalReturn={handlePortalReturn}
         />
           </div>
         </div>
@@ -1556,6 +1625,51 @@ dbEntities={mapEntities}
               onClick={() => setShowGoldenDicePicker(false)}
               className="w-full py-4 text-slate-500 font-bold hover:text-slate-300 transition-colors"
             >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showPortalModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1200]">
+          <div className="bg-gray-900 border border-indigo-500 rounded-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-indigo-400 text-lg font-bold mb-1">⚡ 傳送門</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              消耗 1 顆能量骰子，傳送至六大區入口<br/>
+              <span className="text-yellow-400">需完成今日至少 3 個定課</span>
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {Object.entries(PORTAL_DESTINATIONS).map(([zoneId, dest]) => (
+                <button key={zoneId}
+                  onClick={() => handlePortalTeleport(zoneId)}
+                  className="bg-indigo-900/50 hover:bg-indigo-700 text-white text-sm py-2 px-3 rounded-lg transition-colors">
+                  {dest.name}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setShowPortalModal(false)}
+              className="w-full text-gray-400 text-sm py-2 hover:text-white transition-colors">
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showPortalReturnModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[1200]">
+          <div className="bg-gray-900 border border-purple-500 rounded-xl p-6 max-w-sm w-full mx-4">
+            <h3 className="text-purple-400 text-lg font-bold mb-1">🌀 回歸傳送門</h3>
+            <p className="text-gray-400 text-sm mb-4">
+              消耗 1 顆能量骰子，傳送回本心草原<br/>
+              <span className="text-yellow-400">需完成今日至少 3 個定課</span>
+            </p>
+            <button onClick={handlePortalReturnConfirm}
+              className="w-full bg-purple-700 hover:bg-purple-600 text-white text-sm py-2 rounded-lg mb-2 transition-colors">
+              確認傳送
+            </button>
+            <button onClick={() => setShowPortalReturnModal(false)}
+              className="w-full text-gray-400 text-sm py-2 hover:text-white transition-colors">
               取消
             </button>
           </div>

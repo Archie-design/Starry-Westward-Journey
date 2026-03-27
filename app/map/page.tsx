@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 
 import { ZoneInfo, HexData } from '@/types';
 import { DEFAULT_CONFIG, ZONES, TERRAIN_TYPES, zoneWeights } from '@/lib/constants';
+import { saveWorldMap } from '@/app/actions/player';
 import { axialToPixel, getHexRegion } from '@/lib/utils/hex';
 import HexNode from '@/components/MapEditor/HexNode';
 import { Navbar } from '@/components/MapEditor/Navbar';
@@ -45,15 +46,8 @@ const App = () => {
 
   const saveMapToCloud = async () => {
     setSyncStatus('saving');
-    try {
-      const { error } = await supabase.from('world_maps').upsert({
-        id: 'main_world_map',
-        data: { terrain: mapData, config: { corridorL, corridorW: DEFAULT_CONFIG.CORRIDOR_W } },
-        updated_at: new Date().toISOString()
-      });
-      if (error) throw error;
-      setSyncStatus('synced');
-    } catch (error) { setSyncStatus('error'); }
+    const { error } = await saveWorldMap(mapData, { corridorL, corridorW: DEFAULT_CONFIG.CORRIDOR_W });
+    if (error) { setSyncStatus('error'); } else { setSyncStatus('synced'); }
   };
 
   const handleHoverHex = useCallback((key: string | null) => {
@@ -243,7 +237,7 @@ const App = () => {
               ))}
             </g>
           </svg>
-          <div className="absolute bottom-10 bg-slate-900/80 px-6 py-3 rounded-2xl border border-emerald-500/20 backdrop-blur-xl flex items-center gap-3 shadow-2xl">
+          <div className="absolute bottom-6 right-6 bg-slate-900/80 px-6 py-3 rounded-2xl border border-emerald-500/20 backdrop-blur-xl flex items-center gap-3 shadow-2xl pointer-events-none">
             <Heart size={16} className="text-emerald-500 animate-pulse" />
             <span className="text-xs font-bold text-slate-300 uppercase tracking-widest italic">
               {selectedZone?.id === 'center' ? '區域模式：唯一聖域 - 本心草原' : `編輯區塊：${selectedZone?.name || '無'} - 第 ${selectedSubZoneIdx} 號小區`}

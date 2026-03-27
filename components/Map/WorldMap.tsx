@@ -38,6 +38,8 @@ interface WorldMapProps {
     onUpdateSteps?: (steps: number) => void;
     onExchangeGoldenDice?: () => void;
     onSpringHeal?: () => void;
+    onPortalUse?: () => void;
+    onPortalReturn?: () => void;
 }
 
 // --- Memoized Static Layer ---
@@ -127,7 +129,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
     onExchangeGoldenDice,
-    onSpringHeal,
+    onSpringHeal, onPortalUse, onPortalReturn,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -354,10 +356,16 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     useEffect(() => {
         const wasMoving = prevStepsRef.current > 0;
         prevStepsRef.current = stepsRemaining;
-        if (stepsRemaining === 0 && wasMoving && onSpringHeal) {
+        if (stepsRemaining === 0 && wasMoving) {
             const currentHex = fullGrid.find(h => h.q === userData.CurrentQ && h.r === userData.CurrentR);
-            if (currentHex?.terrainId === 'spring') {
+            if (currentHex?.terrainId === 'spring' && onSpringHeal) {
                 onSpringHeal();
+            }
+            if (currentHex?.terrainId === 'portal' && onPortalUse) {
+                onPortalUse();
+            }
+            if (currentHex?.terrainId?.startsWith('portal_return') && onPortalReturn) {
+                onPortalReturn();
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -24,7 +24,7 @@ const HexNode: React.FC<HexNodeProps> = ({ hex, size, isHovered, onHover, onClic
             {(renderPass === 'all' || renderPass === 'base') && (
                 <polygon
                     points={getHexPointsStr(hex.x, hex.y, size * 1.01)}
-                    fill={terrain?.url ? 'transparent' : hex.color}
+                    fill={hex.color}
                     stroke={isHovered ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.02)"}
                     strokeWidth="1.5"
                     className="cursor-pointer"

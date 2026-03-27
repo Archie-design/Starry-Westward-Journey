@@ -111,8 +111,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="grid grid-cols-2 gap-3 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
               {Object.values(TERRAIN_TYPES)
                 .filter(t => {
-                  if (selectedZone?.id === 'center') return ['grass', 'roots', 'spring', 'roots_yggdrasil'].includes(t.id);
-                  if (selectedZone?.id === 'chaos') return ['ash_path', 'glitch_wall', 'entropy_field', 'random_anomaly', 'void', 'glitch'].includes(t.id);
+                  if (selectedZone?.id === 'center') return ['grass', 'roots', 'spring', 'roots_yggdrasil', 'portal'].includes(t.id);
+                  if (selectedZone?.id === 'pride') return ['snow_path', 'ice_wall', 'thin_air', 'slippery_slope', 'cliffs_pride', 'portal_return_pride'].includes(t.id);
+                  if (selectedZone?.id === 'doubt') return ['dark_trail', 'ancient_tree', 'fog', 'thorns', 'wall_thorns', 'portal_return_doubt'].includes(t.id);
+                  if (selectedZone?.id === 'anger') return ['cracked_earth', 'obsidian', 'lava', 'geyser', 'abyssal_magma', 'portal_return_anger'].includes(t.id);
+                  if (selectedZone?.id === 'greed') return ['wetland', 'rotten_vines', 'deep_bog', 'mimic', 'corrupted_vines', 'portal_return_greed'].includes(t.id);
+                  if (selectedZone?.id === 'delusion') return ['sand_dune', 'sandstorm_wall', 'quicksand', 'mirage', 'chaos_storm_barr', 'portal_return_delusion'].includes(t.id);
+                  if (selectedZone?.id === 'chaos') return ['ash_path', 'glitch_wall', 'entropy_field', 'random_anomaly', 'void', 'portal_return_chaos'].includes(t.id);
                   return true;
                 })
                 .map((t) => (
