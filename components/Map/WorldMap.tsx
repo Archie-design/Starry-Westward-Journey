@@ -512,7 +512,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         }
                         if (stepDist === 1) {
                             const hexData = fullGrid.find(h => h.q === hex.q && h.r === hex.r);
-                            if (TERRAIN_TYPES[hexData?.terrainId]?.impassable) {
+                            if (TERRAIN_TYPES[hexData?.terrainId ?? '']?.impassable) {
                                 onShowMessage('此地形無法通行！', 'error');
                                 return;
                             }
