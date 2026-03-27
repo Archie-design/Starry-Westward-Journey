@@ -449,12 +449,6 @@ export default function App() {
           type: result.isMimic && !result.lootDice ? 'error' : 'success',
           image: result.isMimic ? '/images/chests/chest_mimic.png' : '/images/chests/chest_normal.png',
         });
-      } else if (entity.type !== 'monster') {
-        if (entity.id) await supabase.from('MapEntities').delete().eq('id', entity.id);
-        setModalMessage({
-          text: `🎁 你發現了【${entity.name}】！\n「在這漫漫修行路上，天道給予了一份小驚喜。」\n(已自動拾取)`,
-          type: 'success'
-        });
       }
     } catch (err) {
       console.error(err);
@@ -604,6 +598,16 @@ export default function App() {
 
   const handlePortalUse = () => setShowPortalModal(true);
   const handlePortalReturn = () => setShowPortalReturnModal(true);
+
+  const handleIsolationFreeze = async () => {
+    if (!userData) return;
+    const newDice = Math.max(0, (userData.EnergyDice ?? 0) - 1);
+    const { error } = await saveEnergyDice(userData.UserID, newDice);
+    if (!error) {
+      setUserData(prev => prev ? { ...prev, EnergyDice: newDice } : null);
+    }
+    setModalMessage({ text: '刺骨孤寒！傲慢的代價帶走了你 1 顆能量骰子！', type: 'error' });
+  };
 
   const _portalCheck = (setter: (v: boolean) => void) => {
     const uniqueDaily = new Set(todayCompletedQuestIds.filter(id => /^q[1-9]$/.test(id)));
@@ -1594,6 +1598,7 @@ dbEntities={mapEntities}
           onSpringHeal={handleSpringHeal}
           onPortalUse={handlePortalUse}
           onPortalReturn={handlePortalReturn}
+          onIsolationFreeze={handleIsolationFreeze}
         />
           </div>
         </div>

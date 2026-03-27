@@ -37,7 +37,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(npx skills i YouMind-OpenLab/nano-banana-pro-prompts-recommend-skill)",
       "Bash(npx skills i kingbootoshi/nano-banana-2-skill --yes)",
-      "Bash(python3 .agent/skills/ui-ux-pro-max/scripts/search.py \"gamification tab navigation dark mode mobile\" --design-system -p \"大無限開運西遊\" -f markdown)"
+      "Bash(python3 .agent/skills/ui-ux-pro-max/scripts/search.py \"gamification tab navigation dark mode mobile\" --design-system -p \"大無限開運西遊\" -f markdown)",
+      "Bash(find /Users/keke/starry-westward-journey -type f \\\\\\(-name *.sql -o -name *schema* -o -name *migrations* \\\\\\))",
+      "Bash(grep -r \"CREATE TABLE.*MapEntities\\\\|MapEntity\" /Users/keke/starry-westward-journey --include=*.ts --include=*.tsx --include=*.sql)"
     ]
   }
 }

@@ -40,6 +40,7 @@ interface WorldMapProps {
     onSpringHeal?: () => void;
     onPortalUse?: () => void;
     onPortalReturn?: () => void;
+    onIsolationFreeze?: () => void;
 }
 
 // --- Memoized Static Layer ---
@@ -129,7 +130,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
     onExchangeGoldenDice,
-    onSpringHeal, onPortalUse, onPortalReturn,
+    onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -350,6 +351,27 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         }
     }, [stepsRemaining]);
 
+    // Hex direction vectors (pointy-topped axial, indices 0-5)
+    const HEX_DIRECTIONS = [
+        { q: 1, r: -1 }, { q: 1, r: 0 }, { q: 0, r: 1 },
+        { q: -1, r: 1 }, { q: -1, r: 0 }, { q: 0, r: -1 }
+    ];
+
+    // Returns the closest hex direction index for an arbitrary (non-unit) delta
+    const getClosestHexDir = useCallback((fromQ: number, fromR: number, toQ: number, toR: number): number => {
+        const dq = toQ - fromQ;
+        const dr = toR - fromR;
+        let best = 0;
+        let bestDot = -Infinity;
+        for (let i = 0; i < 6; i++) {
+            const d = HEX_DIRECTIONS[i];
+            const dot = d.q * dq + d.r * dr;
+            if (dot > bestDot) { bestDot = dot; best = i; }
+        }
+        return best;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Spring terrain healing when turn ends on a spring hex.
     // Only fires when transitioning from >0 steps to 0 (actual turn end), not on initial mount.
     const prevStepsRef = useRef(stepsRemaining);
@@ -366,6 +388,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             }
             if (currentHex?.terrainId?.startsWith('portal_return') && onPortalReturn) {
                 onPortalReturn();
+            }
+            // 刺骨孤寒 (Isolation Freeze): end-of-turn deducts 1 energy dice
+            // 謙卑 Buff (q5 completed) grants immunity
+            if (currentHex?.terrainId === 'thin_air' && onIsolationFreeze) {
+                if (todayCompletedQuestIds.includes('q5')) {
+                    onShowMessage('謙卑護體！刺骨孤寒的寒意被你的謙遜化解。', 'success');
+                } else {
+                    onIsolationFreeze();
+                }
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -612,6 +643,34 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             // Determine facing direction based on movement
                             const newFacing = getHexDirection(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
 
+                            // 平滑鏡冰 (Slippery Ice): forced slide in movement direction until hitting impassable/boundary
+                            // 謙卑 Buff (q5 completed) grants immunity
+                            const hasHumilityBuff = todayCompletedQuestIds.includes('q5');
+                            const landingHex = fullGrid.find(h => h.q === actualTargetQ && h.r === actualTargetR);
+                            if (landingHex?.terrainId === 'slippery_slope' && !hasHumilityBuff) {
+                                const slideDir = newFacing >= 0 ? newFacing : getClosestHexDir(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
+                                const dir = HEX_DIRECTIONS[slideDir];
+                                let slideQ = actualTargetQ;
+                                let slideR = actualTargetR;
+                                let slid = false;
+                                while (true) {
+                                    const nextQ = slideQ + dir.q;
+                                    const nextR = slideR + dir.r;
+                                    const nextHex = fullGrid.find(h => h.q === nextQ && h.r === nextR);
+                                    if (!nextHex || TERRAIN_TYPES[nextHex.terrainId ?? '']?.impassable) break;
+                                    const blockedByEntity = allEntitiesForCollision.find(e => e.q === nextQ && e.r === nextR);
+                                    if (blockedByEntity) break;
+                                    slideQ = nextQ;
+                                    slideR = nextR;
+                                    slid = true;
+                                }
+                                if (slid) {
+                                    actualTargetQ = slideQ;
+                                    actualTargetR = slideR;
+                                    onShowMessage('平滑鏡冰！你在冰面上失控滑行！', 'info');
+                                }
+                            }
+
                             const finalHexData = fullGrid.find(h => h.q === actualTargetQ && h.r === actualTargetR) || targetHexData;
                             onMoveCharacter(actualTargetQ, actualTargetR, actualCost, finalHexData.zoneId, newFacing);
 
@@ -630,7 +689,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 }
             }
         }
-    }, [getCurrentPointerHex, stepsRemaining, userData, onMoveCharacter, roleTrait, fullGrid, onShowMessage, dbEntities, isPlanningMode, plannedPath]);
+    }, [getCurrentPointerHex, stepsRemaining, userData, onMoveCharacter, roleTrait, fullGrid, onShowMessage, dbEntities, isPlanningMode, plannedPath, todayCompletedQuestIds, getClosestHexDir]);
 
     const handleExecutePlannedPath = useCallback(() => {
         if (plannedPath.length === 0) return;
@@ -653,17 +712,44 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             if (monsterNearby) { finalIdx = i; break; }
         }
 
-        const targetQ = finalPath[finalIdx].q;
-        const targetR = finalPath[finalIdx].r;
+        let targetQ = finalPath[finalIdx].q;
+        let targetR = finalPath[finalIdx].r;
         const rawCost = finalIdx + 1;
         const actualCost = isCursedPig ? Math.ceil(rawCost * 1.5) : rawCost;
-        const finalHexData = fullGrid.find(h => h.q === targetQ && h.r === targetR);
         const newFacing = getHexDirection(userData.CurrentQ, userData.CurrentR, targetQ, targetR);
 
+        // 平滑鏡冰 (Slippery Ice): forced slide unless 謙卑 Buff (q5 completed)
+        const hasHumilityBuff = todayCompletedQuestIds.includes('q5');
+        const landingHex = fullGrid.find(h => h.q === targetQ && h.r === targetR);
+        if (landingHex?.terrainId === 'slippery_slope' && !hasHumilityBuff) {
+            const slideDir = newFacing >= 0 ? newFacing : getClosestHexDir(userData.CurrentQ, userData.CurrentR, targetQ, targetR);
+            const dir = HEX_DIRECTIONS[slideDir];
+            let slideQ = targetQ;
+            let slideR = targetR;
+            let slid = false;
+            while (true) {
+                const nextQ = slideQ + dir.q;
+                const nextR = slideR + dir.r;
+                const nextHex = fullGrid.find(h => h.q === nextQ && h.r === nextR);
+                if (!nextHex || TERRAIN_TYPES[nextHex.terrainId ?? '']?.impassable) break;
+                const blockedByEntity = activeMonsters.find(e => e.q === nextQ && e.r === nextR);
+                if (blockedByEntity) break;
+                slideQ = nextQ;
+                slideR = nextR;
+                slid = true;
+            }
+            if (slid) {
+                targetQ = slideQ;
+                targetR = slideR;
+                onShowMessage('平滑鏡冰！你在冰面上失控滑行！', 'info');
+            }
+        }
+
+        const finalHexData = fullGrid.find(h => h.q === targetQ && h.r === targetR);
         onMoveCharacter(targetQ, targetR, actualCost, finalHexData?.zoneId, newFacing);
         setPlannedPath([]);
         setIsPlanningMode(false);
-    }, [plannedPath, roleTrait, dbEntities, fullGrid, userData, onMoveCharacter, onShowMessage]);
+    }, [plannedPath, roleTrait, dbEntities, fullGrid, userData, onMoveCharacter, onShowMessage, todayCompletedQuestIds, getClosestHexDir]);
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
         setZoom(prev => Math.min(Math.max(0.3, prev - Math.sign(e.deltaY) * 0.1), 6));
