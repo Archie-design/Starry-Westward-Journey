@@ -3,6 +3,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { DAILY_QUEST_CONFIG } from "@/lib/constants";
 import { logAdminAction } from "@/app/actions/admin";
+import { SquadMemberStats } from "@/types";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -216,8 +217,121 @@ export async function donateGoldenDice(fromUserId: string, toUserId: string, amo
 
     if (rpcErr) throw new Error("捐贈過程發生錯誤：" + rpcErr.message);
 
-    return { 
-        success: true, 
-        message: `成功將 ${amount} 枚黃金骰子贈與 ${recipient.Nickname || recipient.UserID}！` 
+    return {
+        success: true,
+        message: `成功將 ${amount} 枚黃金骰子贈與 ${recipient.Nickname || recipient.UserID}！`
     };
+}
+
+/**
+ * 小隊長：取得自己小隊所有成員的修為狀態
+ */
+export async function getSquadMembersStats(captainUserId: string): Promise<{ success: boolean; members?: SquadMemberStats[]; error?: string }> {
+    const supabase = createClient(supabaseUrl, supabaseActionKey);
+
+    const { data: captain, error: capErr } = await supabase
+        .from('CharacterStats')
+        .select('IsCaptain, TeamName')
+        .eq('UserID', captainUserId)
+        .single();
+
+    if (capErr || !captain) return { success: false, error: '無法驗證身份' };
+    if (!captain.IsCaptain) return { success: false, error: '權限不足' };
+    if (!captain.TeamName) return { success: false, error: '尚未加入小隊' };
+
+    const { data: members, error: memErr } = await supabase
+        .from('CharacterStats')
+        .select('UserID, Name, Level, Exp, TeamName, IsCaptain')
+        .eq('TeamName', captain.TeamName)
+        .order('Exp', { ascending: false });
+
+    if (memErr || !members) return { success: false, error: '無法讀取成員資料' };
+
+    // 取得每位成員最近打卡日期
+    const userIds = members.map((m: any) => m.UserID);
+    const { data: logs } = await supabase
+        .from('DailyLogs')
+        .select('UserID, Timestamp')
+        .in('UserID', userIds)
+        .order('Timestamp', { ascending: false });
+
+    const lastCheckInMap: Record<string, string> = {};
+    if (logs) {
+        for (const log of logs as any[]) {
+            if (!lastCheckInMap[log.UserID]) {
+                // 取日期部分 YYYY-MM-DD
+                lastCheckInMap[log.UserID] = (log.Timestamp as string).slice(0, 10);
+            }
+        }
+    }
+
+    const result: SquadMemberStats[] = members.map((m: any) => ({
+        UserID: m.UserID,
+        Name: m.Name,
+        Level: m.Level ?? 1,
+        Exp: m.Exp ?? 0,
+        TeamName: m.TeamName,
+        IsCaptain: !!m.IsCaptain,
+        lastCheckIn: lastCheckInMap[m.UserID],
+    }));
+
+    return { success: true, members: result };
+}
+
+/**
+ * 大隊長：取得旗下所有小隊成員的修為狀態，以 TeamName 為 key 分組
+ */
+export async function getBattalionMembersStats(commandantUserId: string): Promise<{ success: boolean; members?: Record<string, SquadMemberStats[]>; error?: string }> {
+    const supabase = createClient(supabaseUrl, supabaseActionKey);
+
+    const { data: cmd, error: cmdErr } = await supabase
+        .from('CharacterStats')
+        .select('IsCommandant, SquadName')
+        .eq('UserID', commandantUserId)
+        .single();
+
+    if (cmdErr || !cmd) return { success: false, error: '無法驗證身份' };
+    if (!cmd.IsCommandant) return { success: false, error: '權限不足' };
+    if (!cmd.SquadName) return { success: false, error: '尚未加入大隊' };
+
+    const { data: members, error: memErr } = await supabase
+        .from('CharacterStats')
+        .select('UserID, Name, Level, Exp, TeamName, IsCaptain')
+        .eq('SquadName', cmd.SquadName)
+        .order('Exp', { ascending: false });
+
+    if (memErr || !members) return { success: false, error: '無法讀取成員資料' };
+
+    const userIds = members.map((m: any) => m.UserID);
+    const { data: logs } = await supabase
+        .from('DailyLogs')
+        .select('UserID, Timestamp')
+        .in('UserID', userIds)
+        .order('Timestamp', { ascending: false });
+
+    const lastCheckInMap: Record<string, string> = {};
+    if (logs) {
+        for (const log of logs as any[]) {
+            if (!lastCheckInMap[log.UserID]) {
+                lastCheckInMap[log.UserID] = (log.Timestamp as string).slice(0, 10);
+            }
+        }
+    }
+
+    const grouped: Record<string, SquadMemberStats[]> = {};
+    for (const m of members as any[]) {
+        const teamName = m.TeamName || '未分隊';
+        if (!grouped[teamName]) grouped[teamName] = [];
+        grouped[teamName].push({
+            UserID: m.UserID,
+            Name: m.Name,
+            Level: m.Level ?? 1,
+            Exp: m.Exp ?? 0,
+            TeamName: teamName,
+            IsCaptain: !!m.IsCaptain,
+            lastCheckIn: lastCheckInMap[m.UserID],
+        });
+    }
+
+    return { success: true, members: grouped };
 }

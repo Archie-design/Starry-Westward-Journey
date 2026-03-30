@@ -35,7 +35,7 @@ import { processCheckInTransaction } from '@/app/actions/quest';
 import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction, updateSystemSetting } from '@/app/actions/admin';
 import { getTestimonies } from '@/app/actions/testimonies_admin';
 import { deleteTestimony } from '@/app/actions/admin';
-import { drawWeeklyQuestForSquad, autoDrawAllSquads } from '@/app/actions/team';
+import { drawWeeklyQuestForSquad, autoDrawAllSquads, getSquadMembersStats, getBattalionMembersStats } from '@/app/actions/team';
 import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
 import { handleChestOpen } from '@/app/actions/map';
@@ -119,6 +119,8 @@ export default function App() {
   const [achievementQueue, setAchievementQueue] = useState<AchievementDef[]>([]);
   const [isCheckingCompliance, setIsCheckingCompliance] = useState(false);
   const [complianceResult, setComplianceResult] = useState<{ periodLabel: string; violators: { userId: string; name: string }[]; alreadyRun: boolean } | null>(null);
+  const [squadMembers, setSquadMembers] = useState<import('@/types').SquadMemberStats[]>([]);
+  const [battalionMembers, setBattalionMembers] = useState<Record<string, import('@/types').SquadMemberStats[]>>({});
 
   const showCaptainTab = userData?.IsGM
     ? (gmViewMode === 'all' || gmViewMode === 'captain')
@@ -1237,16 +1239,20 @@ export default function App() {
           const w4Res = await getW4Applications({ userId: stats.UserID });
           if (w4Res.success) setW4Applications(w4Res.applications);
 
-          // If squad leader, fetch pending apps for review
+          // If squad leader, fetch pending apps for review + member stats
           if (stats.IsCaptain && stats.TeamName) {
             const pendingRes = await getW4Applications({ squadName: stats.TeamName, status: 'pending' });
             if (pendingRes.success) setPendingW4Apps(pendingRes.applications);
+            const membersRes = await getSquadMembersStats(stats.UserID);
+            if (membersRes.success && membersRes.members) setSquadMembers(membersRes.members);
           }
 
-          // If commandant, fetch squad_approved apps for final review
+          // If commandant, fetch squad_approved apps for final review + battalion stats
           if (stats.IsCommandant) {
             const commandantRes = await getW4Applications({ status: 'squad_approved' });
             if (commandantRes.success) setSquadApprovedW4Apps(commandantRes.applications);
+            const battalionRes = await getBattalionMembersStats(stats.UserID);
+            if (battalionRes.success && battalionRes.members) setBattalionMembers(battalionRes.members);
           }
 
           // Load achievements
@@ -1415,6 +1421,7 @@ export default function App() {
             onCheckW3Compliance={handleCaptainCheckW3Compliance}
             isCheckingCompliance={isCheckingCompliance}
             complianceResult={complianceResult}
+            squadMembers={squadMembers}
           />
         )}
         {activeTab === 'commandant' && showCommandantTab && userData && (
@@ -1426,6 +1433,7 @@ export default function App() {
               if (res.success) setSquadApprovedW4Apps(res.applications);
             }}
             onShowMessage={(msg, type) => setModalMessage({ text: msg, type })}
+            battalionMembers={battalionMembers}
           />
         )}
         {activeTab === 'achievements' && userData && (

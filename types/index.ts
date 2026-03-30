@@ -215,6 +215,16 @@ export interface SquadFineSubmission {
   created_at: string;
 }
 
+export interface SquadMemberStats {
+  UserID: string;
+  Name: string;
+  Level: number;
+  Exp: number;
+  TeamName: string;
+  IsCaptain: boolean;
+  lastCheckIn?: string; // 最近一筆 DailyLogs.Date（YYYY-MM-DD）
+}
+
 export interface AchievementRecord {
   achievement_id: string;
   unlocked_at: string;

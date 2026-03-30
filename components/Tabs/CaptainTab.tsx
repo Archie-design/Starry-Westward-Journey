@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ShieldAlert, Dices, Loader2, ChevronDown, ChevronUp, Banknote, CalendarCheck, Building2 } from 'lucide-react';
+import { ShieldAlert, Dices, Loader2, ChevronDown, ChevronUp, Banknote, CalendarCheck, Building2, Users } from 'lucide-react';
 import { DAILY_QUEST_CONFIG } from '@/lib/constants';
-import { TeamSettings, W4Application, CaptainBriefing, FinePaymentRecord, SquadFineSubmission } from '@/types';
+import { TeamSettings, W4Application, CaptainBriefing, FinePaymentRecord, SquadFineSubmission, SquadMemberStats } from '@/types';
 // SquadFineSubmission used in orgSubmissions prop below
 
 interface SquadMemberFine {
@@ -33,6 +33,8 @@ interface CaptainTabProps {
     onCheckW3Compliance: () => Promise<void>;
     isCheckingCompliance: boolean;
     complianceResult: { periodLabel: string; violators: { userId: string; name: string }[]; alreadyRun: boolean } | null;
+    // 成員修為總覽
+    squadMembers: SquadMemberStats[];
 }
 
 
@@ -49,6 +51,7 @@ export function CaptainTab({
     onGetAIBriefing, aiBriefing, isLoadingBriefing,
     squadFineMembers, fineHistory, orgSubmissions, onRecordPayment, onSetPaidToCaptainDate, onRecordOrgSubmission, isLoadingFines,
     onCheckW3Compliance, isCheckingCompliance, complianceResult,
+    squadMembers,
 }: CaptainTabProps) {
     const [isDrawing, setIsDrawing] = useState(false);
     const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
@@ -183,6 +186,39 @@ export function CaptainTab({
                             <p className="text-xs font-black text-indigo-400 uppercase tracking-widest mb-1">本週建議</p>
                             <p className="text-xs text-slate-300 leading-relaxed">{aiBriefing.suggestion}</p>
                         </div>
+                    </div>
+                )}
+            </section>
+
+            {/* ── 👥 小隊成員總覽 ── */}
+            <section className="bg-slate-900 border-2 border-sky-500/30 p-6 rounded-4xl space-y-4 shadow-xl">
+                <h3 className="text-lg font-black text-white border-b border-white/10 pb-4 flex items-center gap-2">
+                    <Users size={18} className="text-sky-400" /> 小隊成員總覽
+                </h3>
+                {squadMembers.length === 0 ? (
+                    <p className="text-slate-500 text-xs text-center py-4">尚無成員資料</p>
+                ) : (
+                    <div className="flex flex-col gap-2">
+                        {squadMembers.map(m => {
+                            const today = new Date();
+                            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+                            const yesterday = new Date(today.getTime() - 86400000);
+                            const yestStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+                            const active = m.lastCheckIn === todayStr || m.lastCheckIn === yestStr;
+                            return (
+                                <div key={m.UserID} className={`flex items-center gap-2 px-4 py-3 rounded-2xl bg-slate-800/60 ${active ? 'text-white' : 'text-slate-500'}`}>
+                                    <span className="flex-1 min-w-0 font-bold text-sm truncate">{m.Name}</span>
+                                    {m.IsCaptain && (
+                                        <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 shrink-0">隊長</span>
+                                    )}
+                                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0 ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500'}`}>
+                                        {active ? '活躍' : '沉寂'}
+                                    </span>
+                                    <span className="text-xs font-bold shrink-0">Lv.{m.Level}</span>
+                                    <span className="text-xs font-black text-sky-300 shrink-0 tabular-nums">{m.Exp.toLocaleString()}</span>
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </section>

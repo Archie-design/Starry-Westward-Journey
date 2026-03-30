@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import { CheckCircle2, XCircle, RefreshCw, Sword } from 'lucide-react';
-import { CharacterStats, W4Application } from '@/types';
+import { CheckCircle2, XCircle, RefreshCw, Sword, Users } from 'lucide-react';
+import { CharacterStats, W4Application, SquadMemberStats } from '@/types';
 import { reviewW4ByAdmin } from '@/app/actions/w4';
 
 interface CommandantTabProps {
@@ -10,9 +10,10 @@ interface CommandantTabProps {
     apps: W4Application[];
     onRefresh: () => void;
     onShowMessage: (msg: string, type: 'success' | 'error' | 'info') => void;
+    battalionMembers: Record<string, SquadMemberStats[]>;
 }
 
-export function CommandantTab({ userData, apps, onRefresh, onShowMessage }: CommandantTabProps) {
+export function CommandantTab({ userData, apps, onRefresh, onShowMessage, battalionMembers }: CommandantTabProps) {
     const [reviewingId, setReviewingId] = useState<string | null>(null);
     const [notes, setNotes] = useState<Record<string, string>>({});
 
@@ -37,6 +38,25 @@ export function CommandantTab({ userData, apps, onRefresh, onShowMessage }: Comm
         }
     };
 
+    const isActive = (lastCheckIn?: string) => {
+        if (!lastCheckIn) return false;
+        const today = new Date();
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const todayStr = fmt(today);
+        const yestStr = fmt(new Date(today.getTime() - 86400000));
+        return lastCheckIn === todayStr || lastCheckIn === yestStr;
+    };
+
+    const squadEntries = Object.entries(battalionMembers).map(([name, members]) => {
+        const activeCount = members.filter(m => isActive(m.lastCheckIn)).length;
+        const rate = members.length > 0 ? activeCount / members.length : 0;
+        return { name, members, rate };
+    }).sort((a, b) => b.rate - a.rate);
+
+    const allMembers = Object.values(battalionMembers).flat();
+    const totalActive = allMembers.filter(m => isActive(m.lastCheckIn)).length;
+    const overallRate = allMembers.length > 0 ? totalActive / allMembers.length : 0;
+
     return (
         <div className="space-y-6 animate-in slide-in-from-bottom-4 duration-500">
             {/* Header */}
@@ -57,6 +77,47 @@ export function CommandantTab({ userData, apps, onRefresh, onShowMessage }: Comm
                     </button>
                 </div>
             </div>
+
+            {/* ── 各隊成員總覽 ── */}
+            {allMembers.length > 0 && (
+                <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                        <Users size={16} className="text-rose-400" />
+                        <span className="text-white font-black text-sm">各隊成員修為總覽</span>
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${overallRate >= 0.7 ? 'bg-emerald-500/20 text-emerald-400' : overallRate >= 0.4 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                            大隊活躍率 {Math.round(overallRate * 100)}%
+                        </span>
+                    </div>
+                    {squadEntries.map(({ name, members, rate }) => (
+                        <div key={name} className="bg-slate-900 border border-rose-500/15 rounded-3xl p-4 space-y-3 shadow-lg">
+                            <div className="flex items-center gap-2">
+                                <span className="font-black text-white text-sm">{name}</span>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${rate >= 0.7 ? 'bg-emerald-500/20 text-emerald-400' : rate >= 0.4 ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                                    活躍率 {Math.round(rate * 100)}%
+                                </span>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                {members.map(m => {
+                                    const active = isActive(m.lastCheckIn);
+                                    return (
+                                        <div key={m.UserID} className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-800/50 ${active ? 'text-white' : 'text-slate-500'}`}>
+                                            <span className="flex-1 min-w-0 font-bold text-xs truncate">{m.Name}</span>
+                                            {m.IsCaptain && (
+                                                <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 shrink-0">隊長</span>
+                                            )}
+                                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg shrink-0 ${active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700 text-slate-500'}`}>
+                                                {active ? '活躍' : '沉寂'}
+                                            </span>
+                                            <span className="text-xs font-bold shrink-0">Lv.{m.Level}</span>
+                                            <span className="text-xs font-black text-rose-300 shrink-0 tabular-nums">{m.Exp.toLocaleString()}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Application list */}
             {apps.length === 0 ? (
