@@ -765,7 +765,7 @@ export default function App() {
     if (userData.Role === '白龍馬') roll += 2 * amount;
     if (userData.Role === '唐三藏' && roleTrait?.isCursed) roll = Math.max(1, Math.floor(roll / 2));
 
-    roll = roll * moveMultiplier;
+    roll = Math.max(1, Math.floor(roll * moveMultiplier));
 
     if (springDiceBonus > 0) {
       roll += springDiceBonus;
@@ -843,12 +843,6 @@ export default function App() {
       let penaltyText = "";
       let newFines = userData.TotalFines;
       let finalFacing = newFacing ?? userData.Facing ?? 0;
-
-      // 貪區 (慾望泥沼): 強制滯留，行動力歸零
-      if (zoneId === 'greed' && !todayCompletedQuestIds.includes('q6') && !todayCompletedQuestIds.includes('q7')) {
-        remaining = 0;
-        penaltyText = "你陷入了慾望泥沼，本回合行動力歸零！";
-      }
 
       // 嗔區 (焦熱荒原): 熔岩灼傷，增加罰金 (修為受損)
       if (zoneId === 'anger' && !todayCompletedQuestIds.includes('q1') && !todayCompletedQuestIds.includes('q2')) {
