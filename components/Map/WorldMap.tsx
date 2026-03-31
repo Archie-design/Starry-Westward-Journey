@@ -41,6 +41,10 @@ interface WorldMapProps {
     onPortalUse?: () => void;
     onPortalReturn?: () => void;
     onIsolationFreeze?: () => void;
+    onLavaDoT?: () => void;
+    onGeyserKnockback?: (newQ: number, newR: number) => void;
+    onDeepBog?: () => void;
+    onMimicStep?: () => void;
 }
 
 // --- Memoized Static Layer ---
@@ -130,7 +134,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
     onExchangeGoldenDice,
-    onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze,
+    onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze, onLavaDoT, onGeyserKnockback,
+    onDeepBog, onMimicStep,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -153,6 +158,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     const [plannedPath, setPlannedPath] = useState<{q: number, r: number}[]>([]);
     const [isPlanningMode, setIsPlanningMode] = useState(false);
     const [isStatsExpanded, setIsStatsExpanded] = useState(false);
+    const [ignoreTerrainThisTurn, setIgnoreTerrainThisTurn] = useState(false); // i5 步雲履
+    const [combatStatBuff, setCombatStatBuff] = useState(false);               // i9 九轉金丹
+    const [hasDeathShield, setHasDeathShield] = useState(false);               // i3 錦鑭袈裟
 
     const [dismissedCombatKeys, _setDismissedCombatKeys] = useState<Set<string>>(() => {
         try {
@@ -398,9 +406,59 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     onIsolationFreeze();
                 }
             }
+            // 迷霧 (Dense Fog): notify on arrival when fog is active
+            if (currentHex?.terrainId === 'fog' && !todayCompletedQuestIds.includes('q3')) {
+                const hasLantern = userData.GameInventory?.some(i => i.id === 'i2') ?? false;
+                const range = hasLantern ? 3 : 2;
+                onShowMessage(`濃霧籠罩！${range} 格外的心魔數值無法辨識${hasLantern ? '（火眼金睛擴展至 3 格）' : ''}。`, 'info');
+            }
+            // 熔岩流 (Lava Flow): 回合結束扣 5% MaxHP。清涼心 Buff (q1/q1_dawn/q2) 免疫
+            if (currentHex?.terrainId === 'lava') {
+                const hasCoolHeart = todayCompletedQuestIds.includes('q1') ||
+                    todayCompletedQuestIds.includes('q1_dawn') ||
+                    todayCompletedQuestIds.includes('q2');
+                if (hasCoolHeart) {
+                    onShowMessage('清涼心護體！熔岩的灼傷被你的定力化解。', 'success');
+                } else {
+                    onLavaDoT?.();
+                }
+            }
+            // 間歇泉 (Geyser): 30% 機率彈射至隨機可行走鄰格，受 5% MaxHP 傷害
+            if (currentHex?.terrainId === 'geyser' && Math.random() < 0.3) {
+                const dirs = [{q:1,r:0},{q:-1,r:0},{q:0,r:1},{q:0,r:-1},{q:1,r:-1},{q:-1,r:1}];
+                const walkable = dirs
+                    .map(d => fullGrid.find(h => h.q === userData.CurrentQ + d.q && h.r === userData.CurrentR + d.r))
+                    .filter(h => h && !TERRAIN_TYPES[h.terrainId ?? '']?.impassable);
+                if (walkable.length > 0) {
+                    const target = walkable[Math.floor(Math.random() * walkable.length)]!;
+                    onGeyserKnockback?.(target.q, target.r);
+                }
+            }
+            // 偽裝寶箱 (Mimic Chest): 每次落點觸發慧根檢定，無冷卻，無輕盈免疫
+            if (currentHex?.terrainId === 'mimic') {
+                onMimicStep?.();
+            }
+            // i5 步雲履：回合結束時清除地形免疫 buff
+            setIgnoreTerrainThisTurn(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [stepsRemaining, userData.CurrentQ, userData.CurrentR]);
+
+    // 迷霧 (Dense Fog) state: active when player stands on fog terrain without 心燈 Buff (q3)
+    const isFogActive = useMemo(() => {
+        const cur = fullGrid.find(h => h.q === userData.CurrentQ && h.r === userData.CurrentR);
+        return cur?.terrainId === 'fog' && !todayCompletedQuestIds.includes('q3');
+    }, [fullGrid, userData.CurrentQ, userData.CurrentR, todayCompletedQuestIds]);
+
+    // i2 火眼金睛（被動）: 持有時可見範圍從 2 格擴大至 3 格
+    const fogVisRange = useMemo(() => {
+        if (!isFogActive) return 2;
+        return (userData.GameInventory?.some(i => i.id === 'i2') ?? false) ? 3 : 2;
+    }, [isFogActive, userData.GameInventory]);
+
+    const isFogEntityObscured = useCallback((eq: number, er: number) =>
+        isFogActive && getHexDist(userData.CurrentQ, userData.CurrentR, eq, er) > fogVisRange,
+    [isFogActive, fogVisRange, userData.CurrentQ, userData.CurrentR]);
 
     // --- Event Delegation ---
     const getCurrentPointerHex = useCallback((clientX: number, clientY: number) => {
@@ -596,10 +654,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         const dist = getHexDist(userData.CurrentQ, userData.CurrentR, targetQ, targetR);
                         if (dist === 0) return;
 
-                        // 豬八戒 (貪) Debuff: 懶惰狀態。移動消耗加倍。
+                        // 豬八戒 (貪) Debuff: 懶惰狀態。移動消耗加倍。（i5 步雲履免疫）
                         let finalCost = dist;
-                        if (roleTrait?.name === '豬八戒' && roleTrait?.isCursed) {
+                        if (roleTrait?.name === '豬八戒' && roleTrait?.isCursed && !ignoreTerrainThisTurn) {
                             finalCost = Math.ceil(dist * 1.5);
+                        }
+
+                        // 荊棘叢 (Thorns): 進入荊棘格額外消耗 +1 AP（i5 步雲履免疫）
+                        if (targetHexData?.terrainId === 'thorns' && !ignoreTerrainThisTurn) {
+                            finalCost += 1;
                         }
 
                         if (finalCost <= stepsRemaining) {
@@ -610,6 +673,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                             const path = hexLineDraw({ q: userData.CurrentQ, r: userData.CurrentR }, { q: targetQ, r: targetR });
                             const allEntitiesForCollision = [...dbEntities.filter(e => e.is_active !== false && e.type !== 'personal')];
+                            let blockedByMonster = false;
+                            let triggerDeepBog = false;
+
+                            // 輕盈 Buff (q6/q7): immunity to 深淵泥淖
+                            const hasLightnessBuff = todayCompletedQuestIds.includes('q6') ||
+                                todayCompletedQuestIds.includes('q7');
 
                             for (let i = 1; i < path.length; i++) {
                                 const step = path[i];
@@ -629,6 +698,16 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     break;
                                 }
 
+                                // 深淵泥淖 (Deep Bog): 踏入後強制停止。輕盈 Buff (q6/q7) 免疫
+                                if (stepHex?.terrainId === 'deep_bog' && !hasLightnessBuff && !ignoreTerrainThisTurn) {
+                                    actualTargetQ = step.q;
+                                    actualTargetR = step.r;
+                                    const stepDist = getHexDist(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
+                                    actualCost = roleTrait?.name === '豬八戒' && roleTrait?.isCursed ? Math.ceil(stepDist * 1.5) : stepDist;
+                                    triggerDeepBog = true;
+                                    break;
+                                }
+
                                 const monsterNearby = allEntitiesForCollision.find(e => e.type === 'monster' && getHexDist(step.q, step.r, e.q, e.r) <= 1);
                                 if (monsterNearby) {
                                     // Intercept! Stop at this step.
@@ -636,6 +715,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     actualTargetR = step.r;
                                     const stepDist = getHexDist(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
                                     actualCost = roleTrait?.name === '豬八戒' && roleTrait?.isCursed ? Math.ceil(stepDist * 1.5) : stepDist;
+                                    blockedByMonster = true;
                                     break;
                                 }
                             }
@@ -677,7 +757,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             // Optimistically update facing locally and to parent
                             onUpdateUserData({ Facing: newFacing });
 
-                            if (actualTargetQ !== targetQ || actualTargetR !== targetR) {
+                            // 深淵泥淖：強制消耗剩餘 AP，並通知 page.tsx 設下回合減半
+                            if (triggerDeepBog) {
+                                onUpdateSteps?.(0);
+                                onDeepBog?.();
+                            }
+
+                            if (finalHexData.terrainId === 'thorns') {
+                                onShowMessage('荊棘遍地！費盡力氣才踏入此格，額外消耗 1 AP。', 'info');
+                            }
+
+                            if (blockedByMonster) {
                                 onShowMessage("強大的妖氣逼近！你被迫停下了腳步！", "error");
                             } else if (targetQ !== hex.q || targetR !== hex.r) {
                                 onShowMessage("緊箍咒發作！暴躁的心讓你偏離了原本的路線！", "error");
@@ -706,8 +796,20 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         const isCursedPig = roleTrait?.name === '豬八戒' && roleTrait?.isCursed;
         const activeMonsters = dbEntities.filter(e => e.is_active !== false && e.type === 'monster');
         let finalIdx = finalPath.length - 1;
+        let triggerDeepBogPlanned = false;
+
+        // 輕盈 Buff (q6/q7): immunity to 深淵泥淖
+        const hasLightnessBuff = todayCompletedQuestIds.includes('q6') || todayCompletedQuestIds.includes('q7');
+
         for (let i = 0; i < finalPath.length; i++) {
             const step = finalPath[i];
+            const stepHex = fullGrid.find(h => h.q === step.q && h.r === step.r);
+            // 深淵泥淖：路徑中途遇到，立即截斷
+            if (stepHex?.terrainId === 'deep_bog' && !hasLightnessBuff && !ignoreTerrainThisTurn) {
+                finalIdx = i;
+                triggerDeepBogPlanned = true;
+                break;
+            }
             const monsterNearby = activeMonsters.find(e => getHexDist(step.q, step.r, e.q, e.r) <= 1);
             if (monsterNearby) { finalIdx = i; break; }
         }
@@ -715,7 +817,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         let targetQ = finalPath[finalIdx].q;
         let targetR = finalPath[finalIdx].r;
         const rawCost = finalIdx + 1;
-        const actualCost = isCursedPig ? Math.ceil(rawCost * 1.5) : rawCost;
+        const landingIsThorns = !ignoreTerrainThisTurn && fullGrid.find(h => h.q === targetQ && h.r === targetR)?.terrainId === 'thorns';
+        const actualCost = ((isCursedPig && !ignoreTerrainThisTurn) ? Math.ceil(rawCost * 1.5) : rawCost) + (landingIsThorns ? 1 : 0);
         const newFacing = getHexDirection(userData.CurrentQ, userData.CurrentR, targetQ, targetR);
 
         // 平滑鏡冰 (Slippery Ice): forced slide unless 謙卑 Buff (q5 completed)
@@ -745,11 +848,28 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             }
         }
 
+        if (actualCost > stepsRemaining) {
+            onShowMessage(`能量不足！此步需要 ${actualCost} 點（含荊棘地形），目前僅餘 ${stepsRemaining}。`, 'error');
+            setPlannedPath([]);
+            setIsPlanningMode(false);
+            return;
+        }
+
         const finalHexData = fullGrid.find(h => h.q === targetQ && h.r === targetR);
+        if (landingIsThorns) {
+            onShowMessage('荊棘遍地！費盡力氣才踏入此格，額外消耗 1 AP。', 'info');
+        }
         onMoveCharacter(targetQ, targetR, actualCost, finalHexData?.zoneId, newFacing);
+
+        // 深淵泥淖：強制消耗剩餘 AP，並通知 page.tsx 設下回合減半
+        if (triggerDeepBogPlanned) {
+            onUpdateSteps?.(0);
+            onDeepBog?.();
+        }
+
         setPlannedPath([]);
         setIsPlanningMode(false);
-    }, [plannedPath, roleTrait, dbEntities, fullGrid, userData, onMoveCharacter, onShowMessage, todayCompletedQuestIds, getClosestHexDir]);
+    }, [plannedPath, roleTrait, dbEntities, fullGrid, stepsRemaining, userData, onMoveCharacter, onShowMessage, todayCompletedQuestIds, getClosestHexDir]);
 
     const handleWheel = useCallback((e: React.WheelEvent) => {
         setZoom(prev => Math.min(Math.max(0.3, prev - Math.sign(e.deltaY) * 0.1), 6));
@@ -1143,7 +1263,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 const targetEntity = dbEntities.find(e => e.q === hoveredHexPos.q && e.r === hoveredHexPos.r);
                 if (!targetEntity) return null;
 
-                const isObscured = roleTrait?.name === '沙悟淨' && roleTrait?.isCursed;
+                const isObscured = (roleTrait?.name === '沙悟淨' && roleTrait?.isCursed) ||
+                    (targetEntity.type === 'monster' && isFogEntityObscured(targetEntity.q, targetEntity.r));
                 const monsterLevel = targetEntity.data?.level || 1;
                 const monsterHP = targetEntity.data?.hp || 100;
                 const monsterATK = monsterLevel * 12;
@@ -1166,7 +1287,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             <div className="space-y-1 mt-2 border-t border-white/10 pt-2">
                                 {isObscured ? (
                                     <div className="text-slate-400 text-xs font-bold py-2 flex gap-2 items-center">
-                                        ⚠️ 戰爭迷霧：數值未知
+                                        {isFogEntityObscured(targetEntity.q, targetEntity.r) ? '🌫️ 迷霧遮蔽：數值未知' : '⚠️ 戰爭迷霧：數值未知'}
                                     </div>
                                 ) : (
                                     <>
@@ -1204,8 +1325,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 targetEntity={combatTarget}
                 flankingMultiplier={combatFlankingMultiplier}
                 remainingAP={Math.max(1, stepsRemaining)}
-                isObscured={roleTrait?.name === '沙悟淨' && roleTrait?.isCursed}
+                isObscured={(roleTrait?.name === '沙悟淨' && roleTrait?.isCursed) ||
+                    (combatTarget ? isFogEntityObscured(combatTarget.q, combatTarget.r) : false)}
                 isProcessing={isProcessingItem}
+                statBuffMultiplier={combatStatBuff ? 1.5 : 1.0}
+                hasDeathShield={hasDeathShield}
                 onAttack={async () => {
                     if (isProcessingItem || !combatTarget) return;
                     setIsProcessingItem(true);
@@ -1215,10 +1339,21 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             targetId: combatTarget.id ? String(combatTarget.id) : undefined,
                             monsterData: combatTarget.data || { level: 1, hp: 100 },
                             flankingMultiplier: combatFlankingMultiplier,
-                            remainingAP: Math.max(1, stepsRemaining)
+                            remainingAP: Math.max(1, stepsRemaining),
+                            statBuffMultiplier: combatStatBuff ? 1.5 : 1.0,
+                            hasDeathShield
                         });
 
+                        // i9 九轉金丹：戰鬥結束後清除 buff（無論勝負）
+                        setCombatStatBuff(false);
+
                         if (res.success) {
+                            // i3 錦鑭袈裟：若觸發護身，更新 shield 狀態
+                            if (res.deathShieldTriggered) {
+                                setHasDeathShield(false);
+                                onShowMessage('🥻 錦鑭袈裟護身！致命一擊被化解，保留 1 HP！', 'success');
+                            }
+
                             onShowMessage(res.message, res.isVictory ? 'success' : 'info');
 
                             if (res.isVictory && combatTarget.key) {
@@ -1249,6 +1384,30 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         setIsProcessingItem(false);
                     }
                 }}
+                onCapture={async () => {
+                    if (isProcessingItem || !combatTarget) return;
+                    setIsProcessingItem(true);
+                    try {
+                        await useGameItem(userData.UserID, 'i1');
+                        const monsterLevel = combatTarget.data?.level || 1;
+                        const coinReward = Math.floor(Math.max(monsterLevel, Math.floor(userData.Level * 0.75)) * 20);
+                        onShowMessage(`收妖葫蘆發動！${combatTarget.name || '心魔'} 被收服！獲得 ${coinReward} 金幣。`, 'success');
+                        setIsCombatModalOpen(false);
+                        if (onUpdateSteps) onUpdateSteps(0);
+                        const newInv = (userData.GameInventory || []).map((i: any) => i.id === 'i1' ? { ...i, count: i.count - 1 } : i).filter((i: any) => i.count > 0);
+                        onUpdateUserData({
+                            GameGold: (userData.GameGold || 0) + coinReward,
+                            GameInventory: newInv,
+                            ...(combatTarget.id ? { removeEntityId: combatTarget.id } : {})
+                        } as any);
+                        if (combatTarget.key) setDismissedCombatKeys(prev => new Set(prev).add(getEntityKey(combatTarget)));
+                        if (onEntityTrigger) onEntityTrigger(combatTarget);
+                    } catch (e: any) {
+                        onShowMessage(e.message, 'error');
+                    } finally {
+                        setIsProcessingItem(false);
+                    }
+                }}
             />
 
             {/* Game Inventory Modal layer */}
@@ -1268,8 +1427,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             onUpdateUserData({ GameInventory: newInv });
 
                             // Apply specific item effects to front-end states
-                            if (itemId === 'i7') {   // 神行甲馬
+                            if (itemId === 'i7') {   // 神行甲馬：本回合擲骰 ×2
                                 if (onUpdateMultiplier) onUpdateMultiplier(2);
+                            }
+                            if (itemId === 'i5') {   // 步雲履：本回合無視地形懲罰
+                                setIgnoreTerrainThisTurn(true);
+                            }
+                            if (itemId === 'i9') {   // 九轉金丹：本場戰鬥全屬性 +50%
+                                setCombatStatBuff(true);
+                            }
+                            if (itemId === 'i3') {   // 錦鑭袈裟：抵擋一次致死傷害
+                                setHasDeathShield(true);
                             }
                             // Close inventory automatically for convenience
                             setIsInventoryOpen(false);

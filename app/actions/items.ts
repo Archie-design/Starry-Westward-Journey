@@ -111,7 +111,7 @@ export async function useGameItem(userId: string, itemId: string) {
         // 其餘道具效果由前端/地圖/戰鬥系統處理，回傳 itemEffect 類型
         const effectMap: Record<string, { type: string; desc: string }> = {
             i1: { type: 'combat_instant_kill', desc: '收妖小葫蘆：對低階心魔怪使用，直接收服並獲取掉落物。' },
-            i2: { type: 'reveal_fog_mimic',    desc: '照妖鏡：破除 3 格內的迷霧，識破偽裝寶箱真面目。' },
+            i2: { type: 'reveal_fog_mimic',    desc: '火眼金睛：破除 3 格內的迷霧，識破偽裝寶箱真面目。' },
             i3: { type: 'death_shield',        desc: '錦鑭袈裟：下次致死傷害保留 1 HP（本場戰鬥有效）。' },
             i4: { type: 'seal_passive',        desc: '如意金剛琢：封印目標怪物被動技能 2 回合。' },
             i5: { type: 'ignore_terrain',      desc: '步雲履：本回合無視地形移動懲罰。' },

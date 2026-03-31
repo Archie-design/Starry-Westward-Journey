@@ -38,7 +38,7 @@ import { deleteTestimony } from '@/app/actions/admin';
 import { drawWeeklyQuestForSquad, autoDrawAllSquads, getSquadMembersStats, getBattalionMembersStats } from '@/app/actions/team';
 import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Applications, getAdminActivityLog } from '@/app/actions/w4';
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
-import { handleChestOpen } from '@/app/actions/map';
+import { handleChestOpen, handleMimicTerrain } from '@/app/actions/map';
 import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
 import { saveEnergyDice, saveHP, savePosition } from '@/app/actions/player';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
@@ -611,8 +611,56 @@ export default function App() {
     setModalMessage({ text: '刺骨孤寒！傲慢的代價帶走了你 1 顆能量骰子！', type: 'error' });
   };
 
+  const handleLavaDoT = async () => {
+    if (!userData) return;
+    const roleConfig = ROLE_CURE_MAP[userData.Role] || ROLE_CURE_MAP['孫悟空'];
+    const maxHP = userData.MaxHP ?? (roleConfig.baseHP + (userData.Physique ?? 0) * roleConfig.hpScale);
+    const currentHP = userData.HP ?? maxHP;
+    const damage = Math.max(1, Math.floor(maxHP * 0.05));
+    const newHP = Math.max(0, currentHP - damage);
+    const { error } = await saveHP(userData.UserID, newHP);
+    if (!error) setUserData(prev => prev ? { ...prev, HP: newHP } : null);
+    setModalMessage({ text: `熔岩灼傷！嗔怒之火蝕去你 ${damage} HP（${currentHP} → ${newHP}）！`, type: 'error' });
+  };
+
+  const handleGeyserKnockback = async (newQ: number, newR: number) => {
+    if (!userData) return;
+    const roleConfig = ROLE_CURE_MAP[userData.Role] || ROLE_CURE_MAP['孫悟空'];
+    const maxHP = userData.MaxHP ?? (roleConfig.baseHP + (userData.Physique ?? 0) * roleConfig.hpScale);
+    const currentHP = userData.HP ?? maxHP;
+    const damage = Math.max(1, Math.floor(maxHP * 0.05));
+    const newHP = Math.max(0, currentHP - damage);
+    await savePosition(userData.UserID, newQ, newR);
+    const { error } = await saveHP(userData.UserID, newHP);
+    if (!error) setUserData(prev => prev ? { ...prev, CurrentQ: newQ, CurrentR: newR, HP: newHP } : null);
+    setModalMessage({ text: `間歇泉噴發！你被彈飛至鄰格，受到 ${damage} HP 衝擊傷害！`, type: 'error' });
+  };
+
+  // 深淵泥淖 (Deep Bog): 強制停止後，設下回合移動力減半
+  const handleDeepBog = () => {
+    setMoveMultiplier(0.5);
+    setModalMessage({ text: '深陷泥淖！慾望的黏力將你困住，下回合移動力減半。', type: 'error' });
+  };
+
+  // 偽裝寶箱地形 (Mimic Terrain): 慧根檢定 DC 12，每次踏入皆觸發
+  const handleMimicStep = async () => {
+    if (!userData) return;
+    const result = await handleMimicTerrain(userData.UserID);
+    if (result.success) {
+      setUserData(prev => prev
+        ? { ...prev, EnergyDice: Math.max(0, (prev.EnergyDice ?? 0) + result.gained) }
+        : null
+      );
+      setModalMessage({ text: result.message, type: result.gained > 0 ? 'success' : 'error' });
+    }
+  };
+
   const _portalCheck = (setter: (v: boolean) => void) => {
-    const uniqueDaily = new Set(todayCompletedQuestIds.filter(id => /^q[1-9]$/.test(id)));
+    const uniqueDaily = new Set(
+      todayCompletedQuestIds
+        .filter(id => /^q[1-7](_dawn)?$/.test(id))  // Match q1-q7 and q1_dawn
+        .map(id => id.replace(/_dawn$/, ''))  // Normalize q1_dawn to q1 for uniqueness check
+    );
     if (uniqueDaily.size < 3) {
       setModalMessage({ text: '今日定課未達 3 門，傳送門尚未開啟！', type: 'error' });
       setter(false);
@@ -1607,6 +1655,10 @@ dbEntities={mapEntities}
           onPortalUse={handlePortalUse}
           onPortalReturn={handlePortalReturn}
           onIsolationFreeze={handleIsolationFreeze}
+          onLavaDoT={handleLavaDoT}
+          onGeyserKnockback={handleGeyserKnockback}
+          onDeepBog={handleDeepBog}
+          onMimicStep={handleMimicStep}
         />
           </div>
         </div>

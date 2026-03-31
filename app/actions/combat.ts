@@ -15,13 +15,15 @@ interface CombatParams {
     flankingMultiplier: number; // 1.0 default, 1.3 for flanking, 1.5 for backstab
     remainingAP: number;
     playerDEFOverride?: number; // allow frontend to pass pre-calculated def
+    statBuffMultiplier?: number; // i9 九轉金丹: 1.5 for +50% all stats
+    hasDeathShield?: boolean;    // i3 錦鑭袈裟: survive lethal hit at 1 HP
 }
 
 /**
  * Resolves a combat exchange between a player and a monster/entity
  */
 export async function resolveCombat(params: CombatParams) {
-    const { attackerId, monsterData, flankingMultiplier, remainingAP, playerDEFOverride } = params;
+    const { attackerId, monsterData, flankingMultiplier, remainingAP, playerDEFOverride, statBuffMultiplier = 1.0, hasDeathShield = false } = params;
 
     // 1. Fetch Attacker Data
     const { data: attacker, error: fetchErr } = await supabase
@@ -34,8 +36,9 @@ export async function resolveCombat(params: CombatParams) {
 
     // 2. Base Calculation
     const roleConfig = ROLE_CURE_MAP[attacker.Role] || ROLE_CURE_MAP['孫悟空'];
-    const baseATK = (attacker.Level * 10) + (attacker.Physique * 2);
-    const baseDEF = roleConfig.baseDEF + (attacker.Physique * 1);
+    // i9 九轉金丹：全屬性 ×statBuffMultiplier（預設 1.0 無加成）
+    const baseATK = ((attacker.Level * 10) + (attacker.Physique * 2)) * statBuffMultiplier;
+    const baseDEF = (roleConfig.baseDEF + (attacker.Physique * 1)) * statBuffMultiplier;
 
     const finalDEF = playerDEFOverride ?? baseDEF;
 
@@ -113,7 +116,13 @@ export async function resolveCombat(params: CombatParams) {
 
     // 6. Apply Results
     const currentHP = attacker.HP ?? (roleConfig.baseHP + (attacker.Physique * roleConfig.hpScale));
-    const newHP = Math.max(0, currentHP - totalMonsterDamage);
+    let deathShieldTriggered = false;
+    let newHP = Math.max(0, currentHP - totalMonsterDamage);
+    // i3 錦鑭袈裟：致死傷害保留 1 HP
+    if (hasDeathShield && !isVictory && newHP === 0) {
+        newHP = 1;
+        deathShieldTriggered = true;
+    }
 
     // 7. Update Database (Rewards + HP)
     let coinReward = 0;
@@ -207,6 +216,7 @@ export async function resolveCombat(params: CombatParams) {
     return {
         success: true,
         isVictory,
+        deathShieldTriggered,
         totalPlayerDamage,
         totalMonsterDamage,
         newHP,

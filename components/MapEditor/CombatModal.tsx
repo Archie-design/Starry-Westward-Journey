@@ -15,25 +15,36 @@ interface CombatModalProps {
     isObscured: boolean; // True if fog of war hides stats
     onAttack: () => void;
     isProcessing: boolean;
+    statBuffMultiplier?: number;  // i9 九轉金丹：1.5 = +50% all stats
+    hasDeathShield?: boolean;     // i3 錦鑭袈裟：next lethal hit survives at 1 HP
+    onCapture?: () => void;       // i1 紫金紅葫蘆：instant capture low-level monster
 }
 
 export function CombatModal({
-    isOpen, onClose, player, targetEntity, flankingMultiplier, remainingAP, isObscured, onAttack, isProcessing
+    isOpen, onClose, player, targetEntity, flankingMultiplier, remainingAP, isObscured, onAttack, isProcessing,
+    statBuffMultiplier = 1.0, hasDeathShield = false, onCapture
 }: CombatModalProps) {
     const [imageError, setImageError] = useState(false);
 
     if (!isOpen || !targetEntity) return null;
 
-    // Player Stats Calculation
+    // Player Stats Calculation (statBuffMultiplier: i9 九轉金丹 ×1.5)
     const roleConfig = ROLE_CURE_MAP[player.Role];
     const playerBaseHP = roleConfig ? roleConfig.baseHP + (player.Physique * roleConfig.hpScale) : 1000;
     const currentHP = player.HP ?? playerBaseHP;
-    const playerATK = (player.Level * 10) + (player.Physique * 2);
-    let playerDEF = roleConfig ? roleConfig.baseDEF + (player.Physique * 1) : 50;
+    const playerATK = Math.floor(((player.Level * 10) + (player.Physique * 2)) * statBuffMultiplier);
+    let playerDEF = Math.floor((roleConfig ? roleConfig.baseDEF + (player.Physique * 1) : 50) * statBuffMultiplier);
 
     // Check debuffs (simplified for UI display)
     const isIrritable = player.Role === '孫悟空' && false; // TODO: Hook up real status
     if (isIrritable) playerDEF *= 0.7;
+
+    // i1 紫金紅葫蘆：收服條件（怪物等級 ≤ 玩家等級一半）
+    const canCapture = !!onCapture && ((): boolean => {
+        const mLv = targetEntity.data?.level || 1;
+        return mLv <= Math.floor(player.Level * 0.5);
+    })();
+    const hasGourd = (player.GameInventory?.find((i: any) => i.id === 'i1')?.count ?? 0) > 0;
 
     // Monster Stats Calculation
     const monsterLevel = targetEntity.data?.level || 1;
@@ -115,13 +126,17 @@ export function CombatModal({
                             </div>
                             <div className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-white/5">
                                 <span className="text-xs font-black text-slate-500 flex items-center gap-2"><Swords size={14} className="text-orange-500" /> 攻擊力</span>
-                                <span className="font-bold text-white">{playerATK}</span>
+                                <span className="font-bold text-white flex items-center gap-1">
+                                    {playerATK}
+                                    {statBuffMultiplier > 1 && <span className="text-[10px] text-amber-400 bg-amber-400/10 px-1 rounded">丹 ×{statBuffMultiplier}</span>}
+                                </span>
                             </div>
                             <div className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-white/5">
                                 <span className="text-xs font-black text-slate-500 flex items-center gap-2"><Shield size={14} className="text-indigo-400" /> 防禦力</span>
                                 <span className="font-bold text-white flex items-center gap-1">
                                     {playerDEF}
                                     {isIrritable && <span className="text-[10px] text-red-500 bg-red-500/10 px-1 rounded">(暴躁 -30%)</span>}
+                                    {statBuffMultiplier > 1 && <span className="text-[10px] text-amber-400 bg-amber-400/10 px-1 rounded">丹 ×{statBuffMultiplier}</span>}
                                 </span>
                             </div>
                             <div className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-white/5">
@@ -180,8 +195,12 @@ export function CombatModal({
                     <div className="text-left w-full md:w-auto">
                         <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1 flex items-center gap-1"><Zap size={12} /> AI 戰局推演</div>
                         <div className={`text-lg font-black ${winColor} tracking-wide`}>{winChance}</div>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                            {hasDeathShield && <span className="text-[10px] text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded-full">🥻 袈裟護身（致死免疫×1）</span>}
+                            {statBuffMultiplier > 1 && <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">💊 九轉金丹（全屬 ×{statBuffMultiplier}）</span>}
+                        </div>
                     </div>
-                    <div className="flex gap-3 w-full md:w-auto">
+                    <div className="flex gap-3 w-full md:w-auto flex-wrap">
                         <button
                             onClick={onClose}
                             disabled={isProcessing}
@@ -189,6 +208,15 @@ export function CombatModal({
                         >
                             撤退
                         </button>
+                        {canCapture && hasGourd && (
+                            <button
+                                onClick={onCapture}
+                                disabled={isProcessing}
+                                className={`flex-1 md:flex-none px-6 py-4 rounded-xl font-black transition-all ${isProcessing ? 'bg-purple-900/50 text-purple-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-500 text-white shadow-lg shadow-purple-600/20 active:scale-95'}`}
+                            >
+                                收服 🏺
+                            </button>
+                        )}
                         <button
                             onClick={onAttack}
                             disabled={isProcessing}

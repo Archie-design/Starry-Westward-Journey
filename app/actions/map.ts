@@ -64,10 +64,44 @@ export async function handleChestOpen(userId: string, entityId: string) {
     // 3. 移除地圖上的箱子實體
     await supabase.from('MapEntities').delete().eq('id', entityId);
 
-    return { 
-        success: true, 
-        message, 
-        lootDice, 
-        isMimic 
+    return {
+        success: true,
+        message,
+        lootDice,
+        isMimic
     };
+}
+
+/**
+ * 偽裝寶箱地形（mimic terrain）觸發的慧根檢定
+ * DC 12：成功 +1 骰子，失敗 -1 骰子。每次踏入皆觸發，無冷卻。
+ */
+export async function handleMimicTerrain(userId: string): Promise<{
+    success: boolean; gained: number; message: string;
+}> {
+    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const { data: user } = await supabase
+        .from('CharacterStats')
+        .select('EnergyDice, Savvy')
+        .eq('UserID', userId)
+        .single();
+    if (!user) return { success: false, gained: 0, message: '資料讀取失敗' };
+
+    const roll = Math.floor(Math.random() * 20) + 1;
+    const savvy = user.Savvy ?? 0;
+    const total = roll + savvy;
+    const pass = total >= 12;
+    const delta = pass ? 1 : -1;
+    const newDice = Math.max(0, (user.EnergyDice ?? 0) + delta);
+
+    await supabase
+        .from('CharacterStats')
+        .update({ EnergyDice: newDice })
+        .eq('UserID', userId);
+
+    const msg = pass
+        ? `識破偽裝寶箱！（骰出 ${roll} + 慧根 ${savvy} = ${total} ≥ 12）反手獲得 1 顆能量骰子！`
+        : `上當了！（骰出 ${roll} + 慧根 ${savvy} = ${total} < 12）失去 1 顆能量骰子。`;
+
+    return { success: true, gained: delta, message: msg };
 }
