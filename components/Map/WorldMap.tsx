@@ -45,6 +45,7 @@ interface WorldMapProps {
     onGeyserKnockback?: (newQ: number, newR: number) => void;
     onDeepBog?: () => void;
     onMimicStep?: () => void;
+    onQuicksandDrift?: (newQ: number, newR: number) => void;
 }
 
 // --- Memoized Static Layer ---
@@ -135,7 +136,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
     onExchangeGoldenDice,
     onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze, onLavaDoT, onGeyserKnockback,
-    onDeepBog, onMimicStep,
+    onDeepBog, onMimicStep, onQuicksandDrift,
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -437,6 +438,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             // 偽裝寶箱 (Mimic Chest): 每次落點觸發慧根檢定，無冷卻，無輕盈免疫
             if (currentHex?.terrainId === 'mimic') {
                 onMimicStep?.();
+            }
+            // 迷走流沙 (Quicksand): 回合結束被強制位移至隨機可行走鄰格。定心 Buff (q4) 免疫
+            if (currentHex?.terrainId === 'quicksand' && !todayCompletedQuestIds.includes('q4')) {
+                const dirs = [{q:1,r:-1},{q:1,r:0},{q:0,r:1},{q:-1,r:1},{q:-1,r:0},{q:0,r:-1}];
+                const walkable = dirs
+                    .map(d => fullGrid.find(h => h.q === userData.CurrentQ + d.q && h.r === userData.CurrentR + d.r))
+                    .filter(h => h && !TERRAIN_TYPES[h.terrainId ?? '']?.impassable);
+                if (walkable.length > 0) {
+                    const target = walkable[Math.floor(Math.random() * walkable.length)]!;
+                    onQuicksandDrift?.(target.q, target.r);
+                }
             }
             // i5 步雲履：回合結束時清除地形免疫 buff
             setIgnoreTerrainThisTurn(false);

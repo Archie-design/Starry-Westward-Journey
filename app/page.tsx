@@ -645,6 +645,14 @@ export default function App() {
     setModalMessage({ text: '深陷泥淖！慾望的黏力將你困住，下回合移動力減半。', type: 'error' });
   };
 
+  // 迷走流沙 (Quicksand): 回合結束被強制位移，定心 Buff (q4) 免疫
+  const handleQuicksandDrift = async (newQ: number, newR: number) => {
+    if (!userData) return;
+    await savePosition(userData.UserID, newQ, newR);
+    setUserData(prev => prev ? { ...prev, CurrentQ: newQ, CurrentR: newR } : null);
+    setModalMessage({ text: '迷走流沙！虛妄的流沙將你拖離，被強制位移至鄰格。', type: 'error' });
+  };
+
   // 偽裝寶箱地形 (Mimic Terrain): 慧根檢定 DC 12，每次踏入皆觸發
   const handleMimicStep = async () => {
     if (!userData) return;
@@ -843,24 +851,6 @@ export default function App() {
       let penaltyText = "";
       let newFines = userData.TotalFines;
       let finalFacing = newFacing ?? userData.Facing ?? 0;
-
-      // 嗔區 (焦熱荒原): 熔岩灼傷，增加罰金 (修為受損)
-      if (zoneId === 'anger' && !todayCompletedQuestIds.includes('q1') && !todayCompletedQuestIds.includes('q2')) {
-        newFines += 50;
-        penaltyText = penaltyText ? penaltyText + " 且遭到焦熱熔岩灼傷，業力增加！" : "遭到焦熱熔岩灼傷，業力增加！";
-      }
-
-      // 痴區 (虛妄流沙): 回合結束且停留在該處時，發生隨機位移
-      if (remaining === 0 && zoneId === 'delusion' && !todayCompletedQuestIds.includes('q4')) {
-        const drift = [
-          { q: 1, r: -1 }, { q: 1, r: 0 }, { q: 0, r: 1 },
-          { q: -1, r: 1 }, { q: -1, r: 0 }, { q: 0, r: -1 }
-        ];
-        const rand = drift[Math.floor(Math.random() * drift.length)];
-        finalQ += rand.q;
-        finalR += rand.r;
-        penaltyText = penaltyText ? penaltyText + " 並在虛妄流沙中迷失方向！" : "在虛妄流沙中迷失方向，發生強制位移！";
-      }
 
       // Persist new position + remaining steps BEFORE awaiting DB write.
       // If the user refreshes mid-flight, the position and steps are restored from localStorage.
@@ -1656,6 +1646,7 @@ dbEntities={mapEntities}
           onGeyserKnockback={handleGeyserKnockback}
           onDeepBog={handleDeepBog}
           onMimicStep={handleMimicStep}
+          onQuicksandDrift={handleQuicksandDrift}
         />
           </div>
         </div>
