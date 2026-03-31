@@ -323,8 +323,11 @@ export default function App() {
 
   const handleOpenCaptainTab = () => {
     setActiveTab('captain');
-    // 每次切回 captain tab 時重新載入罰款資料
-    if (userData?.IsCaptain || userData?.IsGM) loadFinesData();
+    // 每次切回 captain tab 時重新載入罰款資料與 AI 建議
+    if (userData?.IsCaptain || userData?.IsGM) {
+      loadFinesData();
+      handleGetAIBriefing();
+    }
   };
 
   const handleGetAIBriefing = async () => {

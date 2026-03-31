@@ -151,7 +151,7 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
 `;
 
         const response = await generateContentWithRetry(ai, {
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
         });
@@ -295,7 +295,7 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
 `;
 
         const response = await generateContentWithRetry(ai, {
-            model: 'gemini-2.0-flash',
+            model: 'gemini-2.5-flash',
             contents: prompt,
             config: { responseMimeType: 'application/json' },
         });
