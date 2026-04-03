@@ -236,3 +236,48 @@ export interface CourseRegistration {
   course_key: string;
   registered_at: string;
 }
+
+// ── 巔峰試煉 ──
+export interface PeakTrial {
+  id: string;
+  title: string;
+  description?: string;
+  start_date?: string;
+  end_date?: string;
+  max_participants?: number;
+  is_active: boolean;
+  created_by?: string;
+  created_at: string;
+}
+
+export interface PeakTrialRegistration {
+  id: string;
+  trial_id: string;
+  user_id: string;
+  user_name?: string;
+  squad_name?: string;
+  registered_at: string;
+}
+
+export interface PeakTrialReview {
+  id: string;
+  registration_id: string;
+  photo_urls?: string[];
+  video_url?: string;
+  notes?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewed_by?: string;
+  reviewed_at?: string;
+  created_at: string;
+}
+
+// ── 加分規則 ──
+export interface BonusQuestRule {
+  id: string;
+  name: string;
+  keywords: string[];
+  bonusType: 'energy' | 'golden';
+  bonusAmount: number;
+  active: boolean;
+  createdAt: string;
+}

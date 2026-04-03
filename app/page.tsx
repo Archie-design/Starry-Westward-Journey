@@ -1542,27 +1542,9 @@ export default function App() {
         <AdminDashboard
           adminAuth={adminAuth}
           onAuth={handleAdminAuth}
-          systemSettings={systemSettings}
-          updateGlobalSetting={updateGlobalSetting}
-          leaderboard={leaderboard}
-          topicHistory={topicHistory}
-          temporaryQuests={temporaryQuests}
-          squadApprovedW4Apps={squadApprovedW4Apps}
-          adminLogs={adminLogs}
-          testimonies={testimonies}
-          onAddTempQuest={handleAddTempQuest}
-          onToggleTempQuest={handleToggleTempQuest}
-          onDeleteTempQuest={handleDeleteTempQuest}
-          onTriggerSnapshot={handleTriggerSnapshot}
-          onAutoDrawAllSquads={handleAutoDrawAllSquads}
-          onImportRoster={handleImportRoster}
-          onFinalReviewW4={handleFinalReviewW4}
-          onDeleteTestimony={async (id) => {
-            await deleteTestimony(id);
-            setTestimonies(prev => prev.filter(t => t.id !== id));
-          }}
           onClose={() => setView('login')}
           actorName={adminActorName}
+          showMessage={(text, type) => setModalMessage({ text, type })}
         />
       )}
 

@@ -40,7 +40,22 @@
       "Bash(python3 .agent/skills/ui-ux-pro-max/scripts/search.py \"gamification tab navigation dark mode mobile\" --design-system -p \"大無限開運西遊\" -f markdown)",
       "Bash(find /Users/keke/starry-westward-journey -type f \\\\\\(-name *.sql -o -name *schema* -o -name *migrations* \\\\\\))",
       "Bash(grep -r \"CREATE TABLE.*MapEntities\\\\|MapEntity\" /Users/keke/starry-westward-journey --include=*.ts --include=*.tsx --include=*.sql)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(grep -r \"saveWorldMap\\\\|getWorldMap\\\\|mapData\" app/actions/*.ts)",
+      "Bash(timeout 20 npx next build)",
+      "Bash(npx next:*)",
+      "Bash(find /Users/keke/starry-westward-journey -type f \\\\\\( -name \"*.ts\" -o -name \"*.tsx\" \\\\\\) -exec grep -l \"DailyQuestConfig\\\\|AchievementConfig\\\\|ArtifactConfig\" {} \\\\;)",
+      "Bash(curl -s https://raw.githubusercontent.com/hunter3949/Starry-Westward-Journey/main/components/Admin/AdminDashboard.tsx)",
+      "Bash(grep -n \"client.query\" /Users/keke/starry-westward-journey/app/actions/*.ts)",
+      "Bash(git checkout:*)",
+      "Bash(supabase --version)",
+      "Bash(psql --version)",
+      "Bash(git add:*)",
+      "Bash(git commit -m 'fix: add missing setIsSyncing\\(false\\) in early returns of handleUndoCheckInAction:*)",
+      "Bash(git push:*)",
+      "Bash(git commit -m 'fix: handle q1_dawn in undo logic by matching both q1 and q1_dawn questIds:*)",
+      "Bash(git commit -m ':*)",
+      "Bash(grep -l \"Course\\\\|peak.*trial\\\\|PeakTrial\" /Users/keke/starry-westward-journey/app/actions/*.ts)"
     ]
   }
 }

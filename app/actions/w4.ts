@@ -192,3 +192,14 @@ export async function getAdminActivityLog(limit = 50) {
     if (error) return { success: false, error: error.message, logs: [] };
     return { success: true, logs: data || [] };
 }
+
+export async function deleteAdminLog(id: string) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { error } = await supabase
+        .from('AdminActivityLog')
+        .delete()
+        .eq('id', id);
+
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}

@@ -461,6 +461,188 @@ export async function deleteTestimony(id: string) {
     return { success: true };
 }
 
+// ── 儀表板統計 ────────────────────────────────────────
+export async function getAdminDashboardStats() {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+
+    // Total users
+    const { count: totalUsers } = await supabase
+        .from('CharacterStats')
+        .select('*', { count: 'exact', head: true });
+
+    // Active users: distinct users who have DailyLogs in last 2 days
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: activeLogs } = await supabase
+        .from('DailyLogs')
+        .select('UserID')
+        .gte('Timestamp', twoDaysAgo);
+
+    const activeUserIds = new Set((activeLogs ?? []).map(l => l.UserID));
+    const activeUsers = activeUserIds.size;
+    const total = totalUsers ?? 0;
+
+    return {
+        success: true,
+        totalUsers: total,
+        activeUsers,
+        dormantUsers: total - activeUsers,
+    };
+}
+
+export async function getSquadRankings() {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { data } = await supabase
+        .from('CharacterStats')
+        .select('SquadName, Exp');
+
+    if (!data) return { success: true, rankings: [] };
+
+    const map = new Map<string, { totalExp: number; count: number }>();
+    for (const row of data) {
+        const name = row.SquadName || '未分組';
+        const entry = map.get(name) || { totalExp: 0, count: 0 };
+        entry.totalExp += (row.Exp || 0);
+        entry.count += 1;
+        map.set(name, entry);
+    }
+
+    const rankings = Array.from(map.entries())
+        .map(([teamName, d]) => ({ teamName, totalExp: d.totalExp, memberCount: d.count }))
+        .sort((a, b) => b.totalExp - a.totalExp);
+
+    return { success: true, rankings };
+}
+
+// ── 人員管理 ────────────────────────────────────────
+export async function getPersonnelList() {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { data, error } = await supabase
+        .from('CharacterStats')
+        .select('UserID, Name, Role, Level, Exp, TeamName, SquadName, IsCaptain, IsCommandant, IsGM, LastCheckIn, Streak, TotalFines')
+        .order('Exp', { ascending: false });
+
+    if (error) return { success: false, error: error.message, members: [] };
+    return { success: true, members: data || [] };
+}
+
+export async function getBattalionSquadTree() {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { data, error } = await supabase
+        .from('CharacterStats')
+        .select('UserID, Name, Role, Level, Exp, TeamName, SquadName, IsCaptain, IsCommandant')
+        .order('Exp', { ascending: false });
+
+    if (error) return { success: false, error: error.message, battalions: [] };
+
+    // Group: TeamName → SquadName → members
+    const teamMap = new Map<string, Map<string, any[]>>();
+    for (const m of (data || [])) {
+        const team = m.TeamName || '未分大隊';
+        const squad = m.SquadName || '未分小隊';
+        if (!teamMap.has(team)) teamMap.set(team, new Map());
+        const squadMap = teamMap.get(team)!;
+        if (!squadMap.has(squad)) squadMap.set(squad, []);
+        squadMap.get(squad)!.push(m);
+    }
+
+    const battalions = Array.from(teamMap.entries()).map(([name, squadMap]) => ({
+        name,
+        squads: Array.from(squadMap.entries()).map(([squadName, members]) => ({
+            name: squadName,
+            members,
+        })),
+    }));
+
+    return { success: true, battalions };
+}
+
+// ── 課程報名查詢 ────────────────────────────────────────
+export async function getCourseRegistrations(courseKey: string) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+
+    const { data: regs, error } = await supabase
+        .from('CourseRegistrations')
+        .select('*')
+        .eq('course_key', courseKey)
+        .order('registered_at', { ascending: false });
+
+    if (error) return { success: false, error: error.message, registrations: [] };
+
+    // Get attendance info
+    const { data: attendance } = await supabase
+        .from('CourseAttendance')
+        .select('user_id, attended_at, scanned_by')
+        .eq('course_key', courseKey);
+
+    const attendanceMap = new Map((attendance ?? []).map(a => [a.user_id, a]));
+
+    // Get user names
+    const userIds = (regs || []).map(r => r.user_id);
+    const { data: users } = await supabase
+        .from('CharacterStats')
+        .select('UserID, Name, TeamName, SquadName')
+        .in('UserID', userIds.length > 0 ? userIds : ['__none__']);
+
+    const userMap = new Map((users ?? []).map(u => [u.UserID, u]));
+
+    const registrations = (regs || []).map(r => {
+        const user = userMap.get(r.user_id);
+        const att = attendanceMap.get(r.user_id);
+        return {
+            id: r.id,
+            userId: r.user_id,
+            userName: user?.Name ?? r.user_id,
+            teamName: user?.TeamName ?? '',
+            squadName: user?.SquadName ?? '',
+            registeredAt: r.registered_at,
+            attended: !!att,
+            attendedAt: att?.attended_at ?? null,
+            scannedBy: att?.scanned_by ?? null,
+        };
+    });
+
+    return { success: true, registrations };
+}
+
+// ── 加分規則 CRUD ────────────────────────────────────────
+export async function listBonusQuestRules() {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { data, error } = await supabase
+        .from('BonusQuestRules')
+        .select('*')
+        .order('createdAt', { ascending: false });
+
+    if (error) return { success: false, error: error.message, rules: [] };
+    return { success: true, rules: data || [] };
+}
+
+export async function upsertBonusQuestRule(rule: {
+    id?: string; name: string; keywords: string[]; bonusType: 'energy' | 'golden'; bonusAmount: number; active: boolean;
+}) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+
+    if (rule.id) {
+        const { error } = await supabase
+            .from('BonusQuestRules')
+            .update({ name: rule.name, keywords: rule.keywords, bonusType: rule.bonusType, bonusAmount: rule.bonusAmount, active: rule.active })
+            .eq('id', rule.id);
+        if (error) return { success: false, error: error.message };
+    } else {
+        const { error } = await supabase
+            .from('BonusQuestRules')
+            .insert({ name: rule.name, keywords: rule.keywords, bonusType: rule.bonusType, bonusAmount: rule.bonusAmount, active: rule.active });
+        if (error) return { success: false, error: error.message };
+    }
+    return { success: true };
+}
+
+export async function deleteBonusQuestRule(id: string) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { error } = await supabase.from('BonusQuestRules').delete().eq('id', id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
 export async function saveBirthday(userId: string, birthday: string) {
     // Validate format YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return { success: false, error: '日期格式錯誤，請使用 YYYY-MM-DD' };
