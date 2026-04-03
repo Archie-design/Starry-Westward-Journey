@@ -2,7 +2,8 @@
 
 import { connectDb } from '@/lib/db';
 import { createClient } from '@supabase/supabase-js';
-import { TERRAIN_TYPES } from '@/lib/constants';
+import { TERRAIN_TYPES, DEFAULT_CONFIG, ZONES } from '@/lib/constants';
+import { getHexRegion } from '@/lib/utils/hex';
 
 const _supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const _supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -120,18 +121,63 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             .eq('id', 'main_world_map')
             .single();
         const terrainMap: Record<string, string> = (mapWorldData?.data as any)?.terrain ?? {};
-        // Parse all terrain keys (format: "zone_subIdx_q,r")
-        // Build: validHexes (has terrain = within map bounds) and impassableHexes (blocked terrain)
-        const validHexes = new Set<string>();
+        // Center-zone terrain keys use global coords ("center_0_q,r") — extract for impassable check
         const impassableHexes = new Set<string>();
         for (const [key, terrainId] of Object.entries(terrainMap)) {
-            // Key format: "center_0_q,r" or "zoneid_N_q,r" — extract last segment
-            const coords = key.split('_').slice(-1)[0]; // "q,r"
-            validHexes.add(coords);
-            if (TERRAIN_TYPES[terrainId]?.impassable) {
+            if (TERRAIN_TYPES[terrainId]?.impassable && key.startsWith('center_')) {
+                const coords = key.split('_').slice(-1)[0]; // "q,r" (global for center zone)
                 impassableHexes.add(coords);
             }
         }
+
+        // Build the full map hex set by replicating WorldMap.tsx grid generation
+        // (center hub + corridors + sub-zones) — the only source of truth for valid hexes
+        const mapConfig = (mapWorldData?.data as any)?.config;
+        const corridorL = mapConfig?.corridorL ?? DEFAULT_CONFIG.CORRIDOR_L;
+        const corridorW = mapConfig?.corridorW ?? DEFAULT_CONFIG.CORRIDOR_W;
+        const R_hub = DEFAULT_CONFIG.CENTER_SIDE - 1;
+        const S_s = DEFAULT_CONFIG.SUBZONE_SIDE;
+        const centerIdx = Math.floor(DEFAULT_CONFIG.CENTER_SIDE / 2);
+        const halfW = Math.floor(corridorW / 2);
+
+        const mapHexSet = new Set<string>();
+        // 1. Center hub
+        getHexRegion(R_hub).forEach(p => mapHexSet.add(`${p.q},${p.r}`));
+
+        // 2. Corridors and sub-zones (matches WorldMap.tsx sideData)
+        const sideData = [
+            { start: { q: 0,     r: -R_hub }, step: { q: 1,  r: 0  }, out: { q: 1,  r: -1 } },
+            { start: { q: R_hub, r: -R_hub }, step: { q: 0,  r: 1  }, out: { q: 1,  r: 0  } },
+            { start: { q: R_hub, r: 0      }, step: { q: -1, r: 1  }, out: { q: 0,  r: 1  } },
+            { start: { q: 0,     r: R_hub  }, step: { q: -1, r: 0  }, out: { q: -1, r: 1  } },
+            { start: { q: -R_hub,r: R_hub  }, step: { q: 0,  r: -1 }, out: { q: -1, r: 0  } },
+            { start: { q: -R_hub,r: 0      }, step: { q: 1,  r: -1 }, out: { q: 0,  r: -1 } },
+        ];
+        const subCenterOffsets = [
+            { q: 0, r: 0 }, { q: 2*S_s-1, r: -(S_s-1) }, { q: S_s, r: S_s-1 },
+            { q: -(S_s-1), r: 2*S_s-1 }, { q: -(2*S_s-1), r: S_s-1 },
+            { q: -S_s, r: -(S_s-1) }, { q: S_s-1, r: -(2*S_s-1) }
+        ];
+        ZONES.forEach((_zone, zIdx) => {
+            const side = sideData[zIdx];
+            for (let i = -halfW; i <= halfW; i++) {
+                const idx = centerIdx + i;
+                const startQ = side.start.q + side.step.q * idx;
+                const startR = side.start.r + side.step.r * idx;
+                for (let l = 1; l <= corridorL; l++) {
+                    mapHexSet.add(`${startQ + side.out.q * l},${startR + side.out.r * l}`);
+                }
+            }
+            const hubExitQ = side.start.q + side.step.q * centerIdx + side.out.q * corridorL;
+            const hubExitR = side.start.r + side.step.r * centerIdx + side.out.r * corridorL;
+            const zCQ = hubExitQ + side.out.q * S_s;
+            const zCR = hubExitR + side.out.r * S_s;
+            subCenterOffsets.forEach(sc => {
+                const cq = zCQ + sc.q;
+                const cr = zCR + sc.r;
+                getHexRegion(S_s - 1).forEach(p => mapHexSet.add(`${cq + p.q},${cr + p.r}`));
+            });
+        });
 
         // 8. Generate new procedural entities based on worldState
 
@@ -155,19 +201,18 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
         const levelBoost = Math.floor(avgActiveLevel / 10);
         const maxMonsterLevel = Math.min(60, Math.max(20, avgActiveLevel));
 
-        // Build candidate hexes grouped by zone
-        const R = 15;
+        // Build candidate hexes grouped by zone — iterate over all valid map hexes
         const zoneHexMap: Record<string, { q: number; r: number }[]> = {};
-        for (let q = -R; q <= R; q++) {
-            for (let r = Math.max(-R, -q - R); r <= Math.min(R, -q + R); r++) {
-                if (q === 0 && r === 0) continue; // Safe hub
-                if (!validHexes.has(`${q},${r}`)) continue; // Outside map bounds (black void)
-                if (occupiedSet.has(`${q},${r}`)) continue;
-                if (impassableHexes.has(`${q},${r}`)) continue;
-                const zone = getZoneId(q, r);
-                if (!zoneHexMap[zone]) zoneHexMap[zone] = [];
-                zoneHexMap[zone].push({ q, r });
-            }
+        for (const hexKey of mapHexSet) {
+            const [qStr, rStr] = hexKey.split(',');
+            const q = parseInt(qStr);
+            const r = parseInt(rStr);
+            if (q === 0 && r === 0) continue; // Safe hub
+            if (occupiedSet.has(hexKey)) continue;
+            if (impassableHexes.has(hexKey)) continue;
+            const zone = getZoneId(q, r);
+            if (!zoneHexMap[zone]) zoneHexMap[zone] = [];
+            zoneHexMap[zone].push({ q, r });
         }
         // Fisher-Yates shuffle per zone for uniform distribution
         for (const arr of Object.values(zoneHexMap)) {
