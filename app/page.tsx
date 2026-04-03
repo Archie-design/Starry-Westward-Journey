@@ -12,7 +12,7 @@ import {
 import { CharacterStats, DailyLog, Quest, SystemSettings, TopicHistory, TemporaryQuest, W4Application, AdminLog, Testimony, FinePaymentRecord, AchievementRecord } from '@/types';
 import { getLogicalDateStr, getWeeklyMonday } from '@/lib/utils/time';
 import { standardizePhone } from '@/lib/utils/phone';
-import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, calculateLevelFromExp, ROLE_GROWTH_RATES, PORTAL_DESTINATIONS, getZoneEntryPoint } from '@/lib/constants';
+import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, PORTAL_DESTINATIONS, getZoneEntryPoint } from '@/lib/constants';
 import { WorldMap } from '@/components/Map/WorldMap';
 
 import { Header } from '@/components/Layout/Header';
@@ -31,7 +31,7 @@ import { AchievementIcon } from '@/components/AchievementIcon';
 import { ACHIEVEMENT_MAP, RARITY_STYLE, type AchievementDef } from '@/lib/achievements';
 import { getUserAchievements } from '@/app/actions/achievements';
 import { AdminDashboard } from '@/components/Admin/AdminDashboard';
-import { processCheckInTransaction } from '@/app/actions/quest';
+import { processCheckInTransaction, processUndoTransaction } from '@/app/actions/quest';
 import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction, updateSystemSetting } from '@/app/actions/admin';
 import { getTestimonies } from '@/app/actions/testimonies_admin';
 import { deleteTestimony } from '@/app/actions/admin';
@@ -920,69 +920,25 @@ export default function App() {
     if (!userData || !quest) return;
     setIsSyncing(true);
     try {
-      // For q1, match both q1 and q1_dawn
-      const questIds = (quest.id === 'q1') ? ['q1', 'q1_dawn'] : [quest.id];
-      let targetLogs: any[] = [];
+      const res = await processUndoTransaction(userData.UserID, quest.id, quest.reward, quest.dice || 0);
 
-      for (const qid of questIds) {
-        const { data } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID).eq('QuestID', qid).order('Timestamp', { ascending: false }).limit(1);
-        if (data && data.length > 0) {
-          targetLogs = data;
-          break;
-        }
-      }
-
-      if (!targetLogs || targetLogs.length === 0) {
-        setIsSyncing(false);
-        return;
-      }
-      if (getLogicalDateStr(targetLogs[0].Timestamp) !== logicalTodayStr) {
-        setModalMessage({ text: "因果已定，僅限回溯今日紀錄。", type: 'info' });
+      if (res.success && res.user) {
+        const { data: newLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
+        const updatedLogs = (newLogs as DailyLog[]) || [];
+        setLogs(updatedLogs);
+        setUserData(res.user as CharacterStats);
         setUndoTarget(null);
-        setIsSyncing(false);
-        return;
+        setModalMessage({ text: "時光回溯成功，心識已歸位。", type: 'success' });
+      } else {
+        const { data: syncedLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
+        if (syncedLogs) setLogs(syncedLogs as DailyLog[]);
+        setModalMessage({ text: res.error || "回溯失敗，業力阻擋。", type: 'error' });
       }
-      await supabase.from('DailyLogs').delete().eq('id', targetLogs[0].id);
-
-      const actualReward: number = targetLogs[0].RewardPoints ?? quest.reward;
-      const newExp = Math.max(0, userData.Exp - actualReward);
-      const newLevel = calculateLevelFromExp(newExp);
-      const roleInfo = ROLE_CURE_MAP[userData.Role];
-
-      const update: Partial<CharacterStats> = {
-        Exp: newExp,
-        Level: newLevel,
-        EnergyDice: Math.max(0, userData.EnergyDice - (quest.dice || 0)),
-        Coins: Math.max(0, userData.Coins - Math.floor(quest.reward * 0.1)),
-      };
-
-      // Reverse level-up stat bonuses if level dropped
-      if (newLevel < userData.Level) {
-        const growthRates = ROLE_GROWTH_RATES[userData.Role] || {};
-        const levelsLost = userData.Level - newLevel;
-        for (const [stat, rate] of Object.entries(growthRates)) {
-          const key = stat as keyof CharacterStats;
-          const current = (userData[key] as number) ?? 0;
-          (update as any)[key] = Math.max(0, current - (rate as number) * levelsLost);
-        }
-      }
-
-      // Reverse cure bonus if applicable
-      if (roleInfo?.cureTaskId === quest.id) {
-        const statKey = roleInfo.bonusStat;
-        const current = (update as any)[statKey] ?? (userData[statKey] as number);
-        (update as any)[statKey] = Math.max(10, current - 2);
-      }
-
-      await supabase.from('CharacterStats').update(update).eq('UserID', userData.UserID);
-      const { data: newLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
-      const updatedLogs = (newLogs as DailyLog[]) || [];
-
-      setLogs(updatedLogs);
-      setUserData({ ...userData, ...update } as CharacterStats);
-      setUndoTarget(null);
-      setModalMessage({ text: "時光回溯成功，心識已歸位。", type: 'success' });
-    } catch (err) { setModalMessage({ text: "回溯失敗，業力阻擋。", type: 'error' }); } finally { setIsSyncing(false); }
+    } catch (err) {
+      setModalMessage({ text: "回溯失敗，業力阻擋。", type: 'error' });
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handlePurchaseSuccess = async () => {

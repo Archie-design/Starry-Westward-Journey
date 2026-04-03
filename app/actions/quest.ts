@@ -5,7 +5,25 @@ import { getLogicalDateStr } from '@/lib/utils/time';
 import { ROLE_CURE_MAP, ROLE_GROWTH_RATES, calculateLevelFromExp } from '@/lib/constants';
 import { checkAndUnlockAchievements } from './achievements';
 
-// We import ROLE_CURE_MAP directly from constants now
+/** Calculate bonus dice and golden dice from quest title keywords */
+function calculateBonusDice(questTitle: string): { bonusDice: number; goldenDiceGain: number } {
+    let bonusDice = 0;
+    let goldenDiceGain = 0;
+    if (questTitle.includes('小天使通話') || questTitle.includes('與家人互動') || questTitle.includes('親證圓夢')) {
+        bonusDice += 1;
+    }
+    if (questTitle.includes('心成') || questTitle.includes('同學會') || questTitle.includes('定聚')) {
+        bonusDice += 2;
+    }
+    if (questTitle.includes('傳愛')) {
+        bonusDice += 1;
+    }
+    if (questTitle.includes('主題親證') || questTitle.includes('會長交接') || questTitle.includes('大會')) {
+        goldenDiceGain += 1;
+    }
+    return { bonusDice, goldenDiceGain };
+}
+
 export async function processCheckInTransaction(
     userId: string,
     questId: string,
@@ -126,27 +144,7 @@ export async function processCheckInTransaction(
 
         const newCoins = currentCoins + gainedCoins;
 
-        let bonusDice = 0;
-        let goldenDiceGain = 0;
-
-        // --- 額外能量骰子獲取與機制 (Bonus Dice Systems) ---
-        // 1. 每週加分項目骰子
-        // 小天使通話與家人互動（社交骰子)
-        if (questTitle.includes('小天使通話') || questTitle.includes('與家人互動') || questTitle.includes('親證圓夢')) {
-            bonusDice += 1;
-        }
-        // 參加心成活動（活躍骰子）
-        if (questTitle.includes('心成') || questTitle.includes('同學會') || questTitle.includes('定聚')) {
-            bonusDice += 2;
-        }
-        // 無上限的傳愛分數（奇蹟骰子）
-        if (questTitle.includes('傳愛')) {
-            bonusDice += 1; // Assuming we add it to normal energy dice for now
-        }
-        // 參與「大會主題活動」的黃金骰子
-        if (questTitle.includes('主題親證') || questTitle.includes('會長交接') || questTitle.includes('大會')) {
-            goldenDiceGain += 1;
-        }
+        const { bonusDice, goldenDiceGain } = calculateBonusDice(questTitle);
 
         const diceGain = questDice + bonusDice;
 
@@ -254,6 +252,131 @@ export async function processCheckInTransaction(
         })();
 
         return { success: true, rewardCapped, user: updatedStatsRes.rows[0], newAchievements: [] };
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        return { success: false, error: error.message };
+    } finally {
+        await client.end();
+    }
+}
+
+export async function processUndoTransaction(
+    userId: string,
+    questId: string,
+    questReward: number,
+    questDice: number = 0
+) {
+    const client = await connectDb();
+
+    try {
+        await client.query('BEGIN');
+
+        // 1. Lock user row
+        const statsRes = await client.query(
+            `SELECT * FROM "CharacterStats" WHERE "UserID" = $1 FOR UPDATE`,
+            [userId]
+        );
+        if (statsRes.rowCount === 0) {
+            throw new Error(`查無此用戶: ${userId}`);
+        }
+        const userData = statsRes.rows[0];
+        const logicalTodayStr = getLogicalDateStr();
+
+        const logicalDateExpr = `CASE
+            WHEN EXTRACT(HOUR FROM "Timestamp" AT TIME ZONE 'Asia/Taipei') >= 12
+            THEN (date("Timestamp" AT TIME ZONE 'Asia/Taipei'))::text
+            ELSE (date("Timestamp" AT TIME ZONE 'Asia/Taipei') - INTERVAL '1 day')::text
+          END`;
+
+        // 2. Find the most recent DailyLog for this quest today (handle q1/q1_dawn)
+        const questVariants = (questId === 'q1' || questId === 'q1_dawn')
+            ? ['q1', 'q1_dawn']
+            : [questId];
+        const placeholders = questVariants.map((_, i) => `$${i + 2}`).join(', ');
+
+        const logRes = await client.query(
+            `SELECT * FROM "DailyLogs"
+             WHERE "UserID" = $1
+               AND "QuestID" IN (${placeholders})
+               AND ${logicalDateExpr} = $${questVariants.length + 2}
+             ORDER BY "Timestamp" DESC
+             LIMIT 1`,
+            [userId, ...questVariants, logicalTodayStr]
+        );
+
+        if (logRes.rowCount === 0) {
+            throw new Error("查無今日此定課紀錄。");
+        }
+
+        const targetLog = logRes.rows[0];
+        const actualReward = parseInt(String(targetLog.RewardPoints), 10) || 0;
+        const wasCapped = actualReward === 0;
+
+        // 3. Calculate reversed stats
+        const currentExp = parseInt(String(userData.Exp), 10) || 0;
+        const currentLevel = parseInt(String(userData.Level), 10) || 1;
+
+        const newExp = Math.max(0, currentExp - actualReward);
+        const newLevel = calculateLevelFromExp(newExp);
+        const levelsLost = currentLevel - newLevel;
+
+        // Coins: reverse base reward × 0.1 (matches check-in line 125 which uses baseReward)
+        const coinsToDeduct = wasCapped ? 0 : Math.floor(questReward * 0.1);
+
+        // Dice: reverse questDice + bonusDice from title keywords
+        const { bonusDice, goldenDiceGain } = calculateBonusDice(targetLog.QuestTitle || '');
+        const totalDiceToDeduct = questDice + bonusDice;
+
+        // 4. Build UPDATE query
+        let updateQuery = `
+            UPDATE "CharacterStats"
+            SET
+                "Exp" = $1,
+                "Level" = $2,
+                "Coins" = GREATEST(0, "Coins" - $3),
+                "EnergyDice" = GREATEST(0, COALESCE("EnergyDice", 0) - $4)
+        `;
+        const updateParams: any[] = [newExp, newLevel, coinsToDeduct, totalDiceToDeduct, userId];
+
+        // Reverse golden dice
+        if (goldenDiceGain > 0) {
+            updateQuery += `, "GoldenDice" = GREATEST(0, COALESCE("GoldenDice", 0) - ${goldenDiceGain})`;
+        }
+
+        // Reverse level-up stat bonuses
+        if (levelsLost > 0) {
+            const growthRates = ROLE_GROWTH_RATES[userData.Role] || {};
+            for (const [stat, rate] of Object.entries(growthRates)) {
+                if (rate && rate > 0) {
+                    const totalLoss = rate * levelsLost;
+                    if (totalLoss > 0) {
+                        updateQuery += `, "${stat}" = GREATEST(0, "${stat}" - ${totalLoss})`;
+                    }
+                }
+            }
+        }
+
+        // Reverse cure bonus (only if reward was not capped)
+        const roleInfo = ROLE_CURE_MAP[userData.Role];
+        const actualQuestId = targetLog.QuestID;
+        if (roleInfo?.cureTaskId === actualQuestId && !wasCapped) {
+            const statKey = roleInfo.bonusStat;
+            updateQuery += `, "${statKey}" = GREATEST(10, "${statKey}" - 2)`;
+        }
+
+        updateQuery += ` WHERE "UserID" = $5 RETURNING *`;
+
+        const updatedStatsRes = await client.query(updateQuery, updateParams);
+
+        // 5. Delete the DailyLog
+        await client.query(
+            `DELETE FROM "DailyLogs" WHERE "id" = $1`,
+            [targetLog.id]
+        );
+
+        await client.query('COMMIT');
+
+        return { success: true, user: updatedStatsRes.rows[0] };
     } catch (error: any) {
         await client.query('ROLLBACK');
         return { success: false, error: error.message };
