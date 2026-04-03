@@ -55,12 +55,20 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             WHERE "Timestamp" >= $1
         `, [past7ISO]);
 
-        const activeUsersCount = activeUsersRes.rowCount || 0;
+        const activeUserIds: string[] = activeUsersRes.rows.map((r: any) => r.UserID);
+        const activeUsersCount = activeUserIds.length;
 
         if (activeUsersCount === 0) {
             await client.query('COMMIT');
             return { success: true, worldState: 'normal', rate: 0, message: "過去 7 天無活躍使用者，環境保持平衡。" };
         }
+
+        // 2b. Query average level of active players
+        const levelRes = await client.query<{ avg: string }>(
+            `SELECT AVG("Level") as avg FROM "CharacterStats" WHERE "UserID" = ANY($1)`,
+            [activeUserIds]
+        );
+        const avgActiveLevel = Math.round(parseFloat(levelRes.rows[0]?.avg ?? '1')) || 1;
 
         // 3. Count total daily quests (q1~q7) completed by these active users in last 7 days
         const logsRes = await client.query(`
@@ -123,17 +131,6 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
         }
 
         // 8. Generate new procedural entities based on worldState
-        const chanceChest = worldState === 'good' ? 0.05 : worldState === 'bad' ? 0.01 : 0.02;
-        const chanceMonster = worldState === 'good' ? 0.01 : worldState === 'bad' ? 0.08 : 0.02;
-
-        // Global caps — scale with active player count, capped at 150 to protect map density
-        const BASE_MONSTERS = Math.min(activeUsersCount * 2, 150);
-        const MAX_MONSTERS = worldState === 'bad'    ? BASE_MONSTERS * 2
-                           : worldState === 'normal' ? BASE_MONSTERS
-                           : Math.floor(BASE_MONSTERS * 0.4); // good: fewer monsters, more chests
-        const MAX_CHESTS   = worldState === 'good' ? 40 : worldState === 'normal' ? 25 : 10;
-        let monsterCount = 0;
-        let chestCount = 0;
 
         // Zone direction lookup (same order as ZONES in constants.tsx)
         // pride=N, doubt=NE, anger=SE, greed=S, delusion=SW, chaos=NW
@@ -148,45 +145,51 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             return 'center';
         };
 
-        // Build shuffled candidate list (skips center and already-occupied hexes)
+        // Per-zone monster coverage rate based on WorldState
+        const monsterCoverageRate = worldState === 'good' ? 0.08 : worldState === 'bad' ? 0.25 : 0.15;
+
+        // Level scaling from active player average level
+        const levelBoost = Math.floor(avgActiveLevel / 10);
+        const maxMonsterLevel = Math.min(60, Math.max(20, avgActiveLevel));
+
+        // Build candidate hexes grouped by zone
         const R = 15;
-        const candidates: { q: number; r: number }[] = [];
+        const zoneHexMap: Record<string, { q: number; r: number }[]> = {};
         for (let q = -R; q <= R; q++) {
             for (let r = Math.max(-R, -q - R); r <= Math.min(R, -q + R); r++) {
                 if (q === 0 && r === 0) continue; // Safe hub
-                if (occupiedSet.has(`${q},${r}`)) continue; // Skip occupied hexes
-                if (impassableHexes.has(`${q},${r}`)) continue; // Skip impassable terrain
-                candidates.push({ q, r });
+                if (occupiedSet.has(`${q},${r}`)) continue;
+                if (impassableHexes.has(`${q},${r}`)) continue;
+                const zone = getZoneId(q, r);
+                if (!zoneHexMap[zone]) zoneHexMap[zone] = [];
+                zoneHexMap[zone].push({ q, r });
             }
         }
-        // Fisher-Yates shuffle for uniform zone distribution
-        for (let i = candidates.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        // Fisher-Yates shuffle per zone for uniform distribution
+        for (const arr of Object.values(zoneHexMap)) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
         }
 
-        for (const { q, r } of candidates) {
-            if (monsterCount >= MAX_MONSTERS && chestCount >= MAX_CHESTS) break;
+        // --- Pass 1: Spawn monsters per zone at fixed coverage rate ---
+        const usedHexes = new Set<string>();
+        const zoneMonsterNames: Record<string, string> = {
+            pride: '慢心魔', doubt: '疑心魔', anger: '嗔心魔',
+            greed: '貪心魔', delusion: '痴心魔', chaos: '亂心魔',
+        };
 
-            const rand = Math.random();
-            if (rand < chanceChest && chestCount < MAX_CHESTS) {
-                await client.query(`
-                    INSERT INTO "MapEntities" (q, r, type, name, icon)
-                    VALUES ($1, $2, 'treasure', '神秘寶箱', '🎁')
-                `, [q, r]);
-                chestCount++;
-            } else if (rand < chanceChest + chanceMonster && monsterCount < MAX_MONSTERS) {
-                // Level scales with axial distance from center (Lv1 near hub, Lv20 at edges)
+        for (const [zoneId, hexes] of Object.entries(zoneHexMap)) {
+            const quota = Math.floor(hexes.length * monsterCoverageRate);
+            const baseName = zoneMonsterNames[zoneId] ?? '野生妖獸';
+
+            for (let i = 0; i < quota && i < hexes.length; i++) {
+                const { q, r } = hexes[i];
                 const dist = (Math.abs(q) + Math.abs(r) + Math.abs(-q - r)) / 2;
-                const level = Math.min(20, Math.max(1, Math.ceil(dist * 1.3)));
-                const isElite = level >= 10 && Math.random() < 0.25;
+                const level = Math.min(maxMonsterLevel, Math.max(1, Math.ceil(dist * 1.3) + levelBoost));
+                const isElite = level >= Math.floor(maxMonsterLevel * 0.5) && Math.random() < 0.25;
                 const hp = isElite ? Math.round((50 + level * 15) * 1.5) : 50 + level * 15;
-                const zoneId = getZoneId(q, r);
-                const zoneMonsterNames: Record<string, string> = {
-                    pride: '慢心魔', doubt: '疑心魔', anger: '嗔心魔',
-                    greed: '貪心魔', delusion: '痴心魔', chaos: '亂心魔',
-                };
-                const baseName = zoneMonsterNames[zoneId] ?? '野生妖獸';
                 const monsterName = isElite ? `精英${baseName}` : baseName;
                 const monsterIcon = isElite ? '👹' : '🐉';
                 const monsterData = isElite ? { level, hp, zone: zoneId, type: 'elite' } : { level, hp, zone: zoneId };
@@ -194,13 +197,33 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
                     INSERT INTO "MapEntities" (q, r, type, name, icon, data)
                     VALUES ($1, $2, 'monster', $3, $4, $5)
                 `, [q, r, monsterName, monsterIcon, JSON.stringify(monsterData)]);
-                monsterCount++;
+                usedHexes.add(`${q},${r}`);
+            }
+        }
+
+        // --- Pass 2: Spawn chests from remaining non-monster hexes ---
+        const MAX_CHESTS = worldState === 'good' ? 40 : worldState === 'normal' ? 25 : 10;
+        const chestRate = worldState === 'good' ? 0.05 : worldState === 'bad' ? 0.01 : 0.02;
+        let chestCount = 0;
+        const remainingHexes = Object.values(zoneHexMap)
+            .flat()
+            .filter(h => !usedHexes.has(`${h.q},${h.r}`))
+            .sort(() => Math.random() - 0.5);
+
+        for (const { q, r } of remainingHexes) {
+            if (chestCount >= MAX_CHESTS) break;
+            if (Math.random() < chestRate) {
+                await client.query(`
+                    INSERT INTO "MapEntities" (q, r, type, name, icon)
+                    VALUES ($1, $2, 'treasure', '神秘寶箱', '🎁')
+                `, [q, r]);
+                chestCount++;
             }
         }
 
         await client.query('COMMIT');
-        await logAdminAction('weekly_snapshot', actorName, undefined, undefined, { worldState, rate: Math.round(rate * 100) + '%' });
-        return { success: true, worldState, rate, message: stateMsg };
+        await logAdminAction('weekly_snapshot', actorName, undefined, undefined, { worldState, rate: Math.round(rate * 100) + '%', avgActiveLevel });
+        return { success: true, worldState, rate, avgActiveLevel, message: stateMsg };
 
     } catch (error: any) {
         await client.query('ROLLBACK');
