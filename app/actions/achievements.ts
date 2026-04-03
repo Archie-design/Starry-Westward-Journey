@@ -1,8 +1,12 @@
 'use server';
 
 import { connectDb } from '@/lib/db';
+import { createClient } from '@supabase/supabase-js';
 import { getLogicalDateStr } from '@/lib/utils/time';
 import type { AchievementRecord } from '@/types';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 // ─── Role → cureTaskId mapping (server-only, mirrors ROLE_CURE_MAP in constants) ───
 const ROLE_CURE_TASK: Record<string, string> = {
@@ -316,20 +320,20 @@ export async function checkAndUnlockAchievements(
 
 /** Fetch all achievements unlocked by the given user */
 export async function getUserAchievements(userId: string): Promise<AchievementRecord[]> {
-    const client = await connectDb();
     try {
-        const res = await client.query(
-            `SELECT achievement_id, unlocked_at FROM "Achievements" WHERE user_id = $1 ORDER BY unlocked_at ASC`,
-            [userId]
-        );
-        return res.rows.map((r: { achievement_id: string; unlocked_at: Date }) => ({
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        const { data, error } = await supabase
+            .from('Achievements')
+            .select('achievement_id, unlocked_at')
+            .eq('user_id', userId)
+            .order('unlocked_at', { ascending: true });
+        if (error) throw error;
+        return (data || []).map((r: { achievement_id: string; unlocked_at: string }) => ({
             achievement_id: r.achievement_id,
-            unlocked_at: r.unlocked_at.toISOString(),
+            unlocked_at: r.unlocked_at,
         }));
     } catch (err) {
         console.error('[achievements] getUserAchievements error:', err);
         return [];
-    } finally {
-        await client.end();
     }
 }

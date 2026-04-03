@@ -1290,11 +1290,10 @@ export default function App() {
             if (battalionRes.success && battalionRes.members) setBattalionMembers(battalionRes.members);
           }
 
-          // Load achievements
-          const achRecords = await getUserAchievements(stats.UserID);
-          setUserAchievements(achRecords);
-
           setView('app');
+
+          // Load achievements in background — don't block page transition
+          getUserAchievements(stats.UserID).then(setUserAchievements).catch(() => {});
         } else { setView(v => v === 'loading' ? 'login' : v); }
       } else if (!savedUid) { setView(v => v === 'loading' ? 'login' : v); }
     };
