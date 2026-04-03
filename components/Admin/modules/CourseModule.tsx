@@ -35,6 +35,11 @@ export function CourseModule() {
     const [volPwdSaved, setVolPwdSaved] = useState(false);
     const [currentPwdStatus, setCurrentPwdStatus] = useState<boolean | null>(null);
 
+    // Peak Trial scan password state
+    const [peakScanPwd, setPeakScanPwd] = useState('');
+    const [peakPwdSaved, setPeakPwdSaved] = useState(false);
+    const [peakPwdStatus, setPeakPwdStatus] = useState<boolean | null>(null);
+
     // Registration state
     const [selectedCourse, setSelectedCourse] = useState<CourseKey | null>(null);
     const [registrations, setRegistrations] = useState<RegistrationRow[]>([]);
@@ -45,6 +50,9 @@ export function CourseModule() {
     useEffect(() => {
         supabase.from('SystemSettings').select('*').eq('SettingName', 'VolunteerPassword').then(({ data }) => {
             setCurrentPwdStatus(data && data.length > 0 && !!data[0].Value);
+        });
+        supabase.from('SystemSettings').select('*').eq('SettingName', 'PeakTrialScanPassword').then(({ data }) => {
+            setPeakPwdStatus(data && data.length > 0 && !!data[0].Value);
         });
     }, []);
 
@@ -58,6 +66,19 @@ export function CourseModule() {
             showMessage('志工密碼已儲存。', 'success');
         } catch {
             showMessage('儲存志工密碼失敗。', 'error');
+        }
+    };
+
+    const handleSavePeakScanPwd = async () => {
+        if (!peakScanPwd.trim()) return;
+        try {
+            const result = await updateSystemSetting('PeakTrialScanPassword', peakScanPwd.trim());
+            if (!(result as any).success) throw new Error((result as any).error);
+            setPeakPwdSaved(true);
+            setPeakPwdStatus(true);
+            showMessage('巔峰試煉掃碼密碼已儲存。', 'success');
+        } catch {
+            showMessage('儲存掃碼密碼失敗。', 'error');
         }
     };
 
@@ -267,6 +288,34 @@ export function CourseModule() {
                             </button>
                         </div>
                         {volPwdSaved && <p className="text-xs text-teal-400 font-bold text-center">志工密碼已儲存</p>}
+                    </div>
+
+                    <div className="flex items-center gap-2 text-purple-400 font-black text-sm uppercase tracking-widest mt-6">
+                        <QrCode size={14} /> 巔峰試煉掃碼授權
+                    </div>
+                    <div className="bg-slate-900 border-2 border-purple-500/20 p-6 rounded-3xl space-y-4 shadow-xl">
+                        <p className="text-xs text-slate-400">設定大隊長專屬密碼，讓大隊長可在主頁「巔峰試煉」分頁輸入密碼後開啟出席掃碼介面，無需管理員帳號。</p>
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <span>目前狀態：</span>
+                            {peakPwdStatus === null ? (
+                                <span className="text-slate-500">載入中...</span>
+                            ) : peakPwdStatus ? (
+                                <span className="text-teal-400 font-black">已設定</span>
+                            ) : (
+                                <span className="text-slate-500 font-black">尚未設定</span>
+                            )}
+                        </div>
+                        <div className="flex gap-2">
+                            <input type="password" value={peakScanPwd}
+                                onChange={e => { setPeakScanPwd(e.target.value); setPeakPwdSaved(false); }}
+                                placeholder="輸入新的大隊長掃碼密碼"
+                                className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl p-4 text-white font-bold outline-none focus:border-purple-500" />
+                            <button onClick={handleSavePeakScanPwd} disabled={!peakScanPwd.trim()}
+                                className="bg-purple-700 px-6 rounded-2xl text-white font-black hover:bg-purple-600 transition-colors disabled:opacity-40">
+                                <Save size={18} />
+                            </button>
+                        </div>
+                        {peakPwdSaved && <p className="text-xs text-teal-400 font-bold text-center">大隊長掃碼密碼已儲存</p>}
                     </div>
                 </section>
             )}

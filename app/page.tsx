@@ -6,7 +6,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   AlertTriangle, CheckCircle2, Sparkles,
   Dice5, Loader2, RotateCcw,
-  Flame, Store, Trophy, BarChart3, Medal, CalendarDays, Compass, Swords
+  Flame, Store, Trophy, BarChart3, Medal, CalendarDays, Compass, Swords, Mountain
 } from 'lucide-react';
 
 import { CharacterStats, DailyLog, Quest, SystemSettings, TopicHistory, TemporaryQuest, W4Application, AdminLog, Testimony, FinePaymentRecord, AchievementRecord } from '@/types';
@@ -27,6 +27,8 @@ import { CommandantTab } from '@/components/Tabs/CommandantTab';
 import { ShopTab } from '@/components/Tabs/ShopTab';
 import { AchievementsTab } from '@/components/Tabs/AchievementsTab';
 import CourseTab from '@/components/Tabs/CourseTab';
+import { PeakTrialTab } from '@/components/Tabs/PeakTrialTab';
+import { getPeakTrialsForPlayer } from '@/app/actions/peakTrials';
 import { AchievementIcon } from '@/components/AchievementIcon';
 import { ACHIEVEMENT_MAP, RARITY_STYLE, type AchievementDef } from '@/lib/achievements';
 import { getUserAchievements } from '@/app/actions/achievements';
@@ -67,7 +69,7 @@ export default function App() {
   const [view, setView] = useState<'login' | 'register' | 'app' | 'loading' | 'admin' | 'map'>('loading');
   const [isSyncing, setIsSyncing] = useState(false);
   const [lineBannerDismissed, setLineBannerDismissed] = useState(false);
-  const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'stats' | 'rank' | 'captain' | 'shop' | 'commandant' | 'achievements' | 'course'>('daily');
+  const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'stats' | 'rank' | 'captain' | 'shop' | 'commandant' | 'achievements' | 'course' | 'peak'>('daily');
   type GmViewMode = 'all' | 'player' | 'captain' | 'commandant';
   const [gmViewMode, setGmViewMode] = useState<GmViewMode>('all');
   const [userData, setUserData] = useState<CharacterStats | null>(null);
@@ -116,6 +118,8 @@ export default function App() {
   const [isLoadingFines, setIsLoadingFines] = useState(false);
   const [orgSubmissions, setOrgSubmissions] = useState<import('@/types').SquadFineSubmission[]>([]);
   const [userAchievements, setUserAchievements] = useState<AchievementRecord[]>([]);
+  const [peakTrials, setPeakTrials] = useState<import('@/types').PeakTrial[]>([]);
+  const [myPeakRegs, setMyPeakRegs] = useState<import('@/types').PeakTrialRegistration[]>([]);
   const [achievementQueue, setAchievementQueue] = useState<AchievementDef[]>([]);
   const [isCheckingCompliance, setIsCheckingCompliance] = useState(false);
   const [complianceResult, setComplianceResult] = useState<{ periodLabel: string; violators: { userId: string; name: string }[]; alreadyRun: boolean } | null>(null);
@@ -154,6 +158,21 @@ export default function App() {
   const todayCompletedQuestIds = useMemo(() => {
     return logs.filter(l => getLogicalDateStr(l.Timestamp) === logicalTodayStr).map(l => l.QuestID);
   }, [logs, logicalTodayStr]);
+
+  // d7 渾天至寶珠：全隊梵天庇護是否啟用（48hr 有效）
+  const d7BuffActive = useMemo(() => {
+    if (!teamSettings?.d7_activated_at) return false;
+    const elapsed = Date.now() - new Date(teamSettings.d7_activated_at).getTime();
+    return elapsed < 48 * 3600 * 1000;
+  }, [teamSettings]);
+
+  // 緊箍咒：孫悟空當日未完成 q2（感恩冥想）時觸發，DEF -30%
+  // d7 梵天庇護期間免疫五毒詛咒
+  const isIrritable = useMemo(() => {
+    if (d7BuffActive) return false;
+    if (!userData || userData.Role !== '孫悟空') return false;
+    return !logs.some(l => l.QuestID === 'q2' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
+  }, [userData, logs, logicalTodayStr, d7BuffActive]);
 
   const handleAdminAuth = async (e: { preventDefault: () => void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
@@ -447,7 +466,7 @@ export default function App() {
       } else if (entity.type === 'chest') {
         // handleChestOpen handles DB deletion internally
         if (!userData) throw new Error('用戶資料未載入');
-        const result = await handleChestOpen(userData.UserID, entity.id);
+        const result = await handleChestOpen(userData.UserID, entity.id, !!entity._mimicImmune);
         setUserData(prev => prev ? { ...prev, EnergyDice: (prev.EnergyDice || 0) + result.lootDice } : prev);
         setModalMessage({
           text: result.message,
@@ -1106,6 +1125,7 @@ export default function App() {
           WorldState: sObj.WorldState,
           WorldStateMsg: sObj.WorldStateMsg,
           VolunteerPassword: sObj.VolunteerPassword,
+          PeakTrialScanPassword: sObj.PeakTrialScanPassword,
         });
       }
 
@@ -1265,6 +1285,12 @@ export default function App() {
 
           // Load achievements in background — don't block page transition
           getUserAchievements(stats.UserID).then(setUserAchievements).catch(() => {});
+
+          // Load peak trials in background
+          getPeakTrialsForPlayer(stats.UserID).then(res => {
+            setPeakTrials(res.trials);
+            setMyPeakRegs(res.myRegistrations);
+          }).catch(() => {});
         } else { setView(v => v === 'loading' ? 'login' : v); }
       } else if (!savedUid) { setView(v => v === 'loading' ? 'login' : v); }
     };
@@ -1293,6 +1319,15 @@ export default function App() {
     if (activeTab === 'captain' && !showCaptainTab) setActiveTab('daily');
     if (activeTab === 'commandant' && !showCommandantTab) setActiveTab('daily');
   }, [gmViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'peak' && userData?.UserID) {
+      getPeakTrialsForPlayer(userData.UserID).then(res => {
+        setPeakTrials(res.trials);
+        setMyPeakRegs(res.myRegistrations);
+      }).catch(() => {});
+    }
+  }, [activeTab, userData?.UserID]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const GmToolbar = () => {
     if (!userData?.IsGM) return null;
@@ -1357,6 +1392,7 @@ export default function App() {
         <button onClick={() => setActiveTab('stats')} aria-current={activeTab === 'stats' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'stats' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><BarChart3 size={16} />六維與罰金</button>
         <button onClick={() => setActiveTab('achievements')} aria-current={activeTab === 'achievements' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'achievements' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Medal size={16} />成就</button>
         <button onClick={() => setActiveTab('course')} aria-current={activeTab === 'course' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'course' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><CalendarDays size={16} />課程</button>
+        <button onClick={() => setActiveTab('peak')} aria-current={activeTab === 'peak' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'peak' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Mountain size={16} />試煉</button>
         {showCaptainTab && (
           <button onClick={handleOpenCaptainTab} aria-current={activeTab === 'captain' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'captain' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Compass size={16} />指揮所</button>
         )}
@@ -1446,6 +1482,23 @@ export default function App() {
         )}
         {activeTab === 'course' && userData && (
           <CourseTab userData={userData} volunteerPassword={systemSettings.VolunteerPassword ?? ''} />
+        )}
+        {activeTab === 'peak' && userData && (
+          <PeakTrialTab
+            trials={peakTrials}
+            myRegistrations={myPeakRegs}
+            userId={userData.UserID}
+            userName={userData.Name}
+            squadName={userData.SquadName}
+            battalionName={userData.TeamName}
+            onRefresh={() => getPeakTrialsForPlayer(userData.UserID).then(res => {
+              setPeakTrials(res.trials);
+              setMyPeakRegs(res.myRegistrations);
+            })}
+            onShowMessage={(msg, type) => setModalMessage({ text: msg, type })}
+            systemSettings={systemSettings}
+            allTrials={peakTrials}
+          />
         )}
       </main>
 
@@ -1589,6 +1642,7 @@ dbEntities={mapEntities}
             setUserData(prev => prev ? { ...prev, ...data } : null);
           }}
           onUpdateSteps={setStepsRemaining}
+          isIrritable={isIrritable}
           onExchangeGoldenDice={() => setShowExchangeConfirm(true)}
           onSpringHeal={handleSpringHeal}
           onPortalUse={handlePortalUse}
@@ -1599,6 +1653,7 @@ dbEntities={mapEntities}
           onDeepBog={handleDeepBog}
           onMimicStep={handleMimicStep}
           onQuicksandDrift={handleQuicksandDrift}
+          teamMembers={leaderboard.filter(p => p.TeamName && p.TeamName === userData?.TeamName && p.UserID !== userData?.UserID)}
         />
           </div>
         </div>

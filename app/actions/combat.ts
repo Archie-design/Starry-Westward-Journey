@@ -17,13 +17,24 @@ interface CombatParams {
     playerDEFOverride?: number; // allow frontend to pass pre-calculated def
     statBuffMultiplier?: number; // i9 九轉金丹: 1.5 for +50% all stats
     hasDeathShield?: boolean;    // i3 錦鑭袈裟: survive lethal hit at 1 HP
+    sealMonsterPassive?: boolean; // i4 如意金剛琢: seal monster passive skills
+    d1StatBuff?: number;          // d1 五毒精魄: 1.2 (+20%) or 1.4 (+40%, destiny quest done)
+    monsterLevelDebuff?: number;  // d2 業障石: reduce monster level by N (usually 3)
+    noCritIncoming?: boolean;     // 沙悟淨 定心杵: enemy attacks cannot crit this combat
 }
+
+// ── d1–d7 掉落物機率表（依怪物類型）──
+const DROP_RATES_BY_TYPE: Record<string, number[]> = {
+    normal: [0.08, 0.06, 0.01, 0.00, 0.05, 0.00, 0.00],
+    demon:  [0.15, 0.12, 0.08, 0.03, 0.10, 0.05, 0.01],
+    elite:  [0.20, 0.18, 0.15, 0.10, 0.12, 0.08, 0.03],
+};
 
 /**
  * Resolves a combat exchange between a player and a monster/entity
  */
 export async function resolveCombat(params: CombatParams) {
-    const { attackerId, monsterData, flankingMultiplier, remainingAP, playerDEFOverride, statBuffMultiplier = 1.0, hasDeathShield = false } = params;
+    const { attackerId, monsterData, flankingMultiplier, remainingAP, playerDEFOverride, statBuffMultiplier = 1.0, hasDeathShield = false, sealMonsterPassive = false, d1StatBuff = 1.0, monsterLevelDebuff = 0, noCritIncoming = false } = params;
 
     // 1. Fetch Attacker Data
     const { data: attacker, error: fetchErr } = await supabase
@@ -36,14 +47,27 @@ export async function resolveCombat(params: CombatParams) {
 
     // 2. Base Calculation
     const roleConfig = ROLE_CURE_MAP[attacker.Role] || ROLE_CURE_MAP['孫悟空'];
-    // i9 九轉金丹：全屬性 ×statBuffMultiplier（預設 1.0 無加成）
-    const baseATK = ((attacker.Level * 10) + (attacker.Physique * 2)) * statBuffMultiplier;
-    const baseDEF = (roleConfig.baseDEF + (attacker.Physique * 1)) * statBuffMultiplier;
+    // i9 九轉金丹 × d1 五毒精魄 疊加乘數（各自獨立，相乘後套用）
+    const combinedStatBuff = statBuffMultiplier * d1StatBuff;
+    let baseATK = ((attacker.Level * 10) + (attacker.Physique * 2)) * combinedStatBuff;
+    let baseDEF = (roleConfig.baseDEF + (attacker.Physique * 1)) * combinedStatBuff;
+
+    // ── Streak 連續打卡技能（被動加成）──
+    const streak = attacker.Streak ?? 0;
+    const streakTier = streak >= 7 ? 2 : streak >= 3 ? 1 : 0;
+    if (streakTier >= 1) {
+        switch (attacker.Role) {
+            case '孫悟空': baseATK *= streakTier >= 2 ? 1.4 : 1.2; break;
+            case '沙悟淨': baseDEF *= streakTier >= 2 ? 1.35 : 1.2; break;
+            case '唐三藏': if (streakTier >= 2) baseATK += (attacker.Charisma ?? 0) * 5; break;
+        }
+    }
 
     const finalDEF = playerDEFOverride ?? baseDEF;
 
     // 3. Monster Power
-    const monsterLevel = monsterData.level || 1;
+    // d2 業障石：降低怪物等級（最低 1）
+    const monsterLevel = Math.max(1, (monsterData.level || 1) - monsterLevelDebuff);
     // effectiveLevel tracks player level at 75% floor — ensures mid/late-game players still feel pressure
     const effectiveLevel = Math.max(monsterLevel, Math.floor(attacker.Level * 0.75));
     let monsterATK = effectiveLevel * 12;
@@ -65,14 +89,23 @@ export async function resolveCombat(params: CombatParams) {
     const battleLog: any[] = [];
     const luck = attacker.Luck || 5;
 
-    for (let i = 0; i < remainingAP; i++) {
+    // 白龍馬 Streak：戰鬥前額外 AP
+    let effectiveAP = remainingAP;
+    if (attacker.Role === '白龍馬' && streakTier >= 1) {
+        effectiveAP += streakTier >= 2 ? 2 : 1;
+    }
+
+    // 孫悟空 Streak ≥ 7：暴擊率 +15%
+    const critBonus = (attacker.Role === '孫悟空' && streakTier >= 2) ? 15 : 0;
+
+    for (let i = 0; i < effectiveAP; i++) {
         // Luck check for Hit / Crit
         const roll = Math.random() * 100;
         let isCrit = false;
         let isMiss = false;
 
         const missChance = Math.max(0, (10 - luck) * 2); // Luck 3 -> 14% miss
-        const critChance = luck * 5; // Luck 8 -> 40% crit
+        const critChance = luck * 5 + critBonus; // Luck 8 -> 40% crit (+ streak bonus for 孫悟空 Lv7)
 
         if (roll < missChance) {
             isMiss = true;
@@ -97,8 +130,8 @@ export async function resolveCombat(params: CombatParams) {
         battleLog.push({ hit: i + 1, type: isCrit ? 'crit' : 'hit', damage: hitDamage, flank: currentFlank });
 
         // Monster Passive trigger (Example: 嗔區 Frenzy)
-        // If it's a specific monster type, getting hit increases its ATK
-        if (monsterData.zone === '嗔' || monsterData.traits?.includes('frenzy')) {
+        // i4 如意金剛琢：sealMonsterPassive skips passive triggers
+        if (!sealMonsterPassive && (monsterData.zone === '嗔' || monsterData.traits?.includes('frenzy'))) {
             monsterATK += 5; // Monster gets angrier each hit
         }
 
@@ -111,7 +144,12 @@ export async function resolveCombat(params: CombatParams) {
     const isVictory = monsterHP <= 0;
 
     if (!isVictory) {
-        totalMonsterDamage = Math.max(5, monsterATK - finalDEF);
+        let baseDamage = Math.max(5, monsterATK - finalDEF);
+        // 怪物 10% 機率爆擊（×1.5）；定心杵免疫
+        if (!noCritIncoming && Math.random() < 0.10) {
+            baseDamage = Math.floor(baseDamage * 1.5);
+        }
+        totalMonsterDamage = baseDamage;
     }
 
     // 6. Apply Results
@@ -213,6 +251,64 @@ export async function resolveCombat(params: CombatParams) {
         if (hpErr) console.error('[combat] MapEntities hp update failed:', hpErr.message);
     }
 
+    // 9. Streak post-battle effects
+    let drops: string[] = [];
+    if (isVictory) {
+        // 唐三藏 Streak：戰後 HP 回復
+        if (attacker.Role === '唐三藏' && streakTier >= 1) {
+            const baseHP = roleConfig.baseHP + (attacker.Physique * roleConfig.hpScale);
+            const healAmount = Math.floor(baseHP * 0.10);
+            const healed = Math.min(baseHP, newHP + healAmount);
+            await supabase.from('CharacterStats').update({ HP: healed }).eq('UserID', attackerId);
+        }
+
+        // 沙悟淨 Streak ≥ 7：首次致死免疫（已在 deathShield 邏輯中處理，此處無需額外操作）
+
+        // 10. d1–d7 掉落物（依怪物類型計算機率）
+        const monsterType = monsterData.type === 'elite' ? 'elite'
+            : (monsterData.type === 'demon' || monsterData.traits?.includes('demon')) ? 'demon'
+            : 'normal';
+        const rates = DROP_RATES_BY_TYPE[monsterType] ?? DROP_RATES_BY_TYPE.normal;
+        const luckMod = 1 + (attacker.Luck ?? 0) * 0.02;
+        // d3 心魔殘骸：對心魔怪掉落機率的永久加成（DemonDropBoostSeasonal 例如 0.10 = +10%）
+        const demonBoost = monsterType === 'demon' ? 1 + (attacker.DemonDropBoostSeasonal ?? 0) : 1;
+
+        for (let i = 0; i < 7; i++) {
+            if (rates[i] <= 0) continue;
+            // d7 渾天至寶珠：季節唯一（檢查 TeamSettings.inventory）
+            if (i === 6 && attacker.TeamName) {
+                const { data: ts } = await supabase
+                    .from('TeamSettings').select('inventory').eq('team_name', attacker.TeamName).single();
+                const teamInv: string[] = typeof ts?.inventory === 'string'
+                    ? JSON.parse(ts.inventory) : (ts?.inventory ?? []);
+                if (teamInv.includes('d7')) continue;
+            }
+            if (Math.random() < rates[i] * luckMod * demonBoost) drops.push(`d${i + 1}`);
+        }
+
+        if (drops.length > 0) {
+            const currentInv: Array<{ id: string; count: number }> = attacker.GameInventory ?? [];
+            for (const dropId of drops) {
+                const existing = currentInv.find(it => it.id === dropId);
+                if (existing) { existing.count++; } else { currentInv.push({ id: dropId, count: 1 }); }
+            }
+            await supabase.from('CharacterStats')
+                .update({ GameInventory: currentInv })
+                .eq('UserID', attackerId);
+            if (drops.includes('d7') && attacker.TeamName) {
+                const { data: ts } = await supabase
+                    .from('TeamSettings').select('inventory').eq('team_name', attacker.TeamName).single();
+                const teamInv: string[] = typeof ts?.inventory === 'string'
+                    ? JSON.parse(ts.inventory) : (ts?.inventory ?? []);
+                if (!teamInv.includes('d7')) {
+                    await supabase.from('TeamSettings')
+                        .update({ inventory: JSON.stringify([...teamInv, 'd7']) })
+                        .eq('team_name', attacker.TeamName);
+                }
+            }
+        }
+    }
+
     return {
         success: true,
         isVictory,
@@ -223,10 +319,11 @@ export async function resolveCombat(params: CombatParams) {
         coinReward: isVictory ? coinReward : 0,
         diceReward: totalDiceReward,
         goldenDiceReward,
+        drops: isVictory ? (drops ?? []) : [],
         monsterRemainingHP: Math.max(0, monsterHP),
         battleLog,
-        message: isVictory 
-            ? `大獲全勝！你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，擊殺心魔。${rewardMsg}` 
+        message: isVictory
+            ? `大獲全勝！你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，擊殺心魔。${rewardMsg}`
             : `你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，遭到反擊受到 ${totalMonsterDamage} 點傷害。`
     };
 }

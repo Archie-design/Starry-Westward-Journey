@@ -11,7 +11,9 @@ import { NPCShopModal } from '@/components/MapEditor/NPCShopModal';
 import { CombatModal } from '@/components/MapEditor/CombatModal';
 import { buyGameItem, useGameItem } from '@/app/actions/items';
 import { resolveCombat } from '@/app/actions/combat';
+import { applyTrapDamage } from '@/app/actions/map';
 import { donateDice } from '@/app/actions/team';
+import { recordSomersaultUsed, useNineToothRake, dragonSoarDonate, usePrajnaMantra } from '@/app/actions/skills';
 
 // --- Types ---
 interface WorldMapProps {
@@ -36,6 +38,7 @@ interface WorldMapProps {
     onShowMessage: (msg: string, type: 'success' | 'error' | 'info') => void;
     onUpdateUserData: (data: Partial<CharacterStats>) => void;
     onUpdateSteps?: (steps: number) => void;
+    isIrritable?: boolean;        // 緊箍咒：孫悟空當日未完成 q2
     onExchangeGoldenDice?: () => void;
     onSpringHeal?: () => void;
     onPortalUse?: () => void;
@@ -46,6 +49,7 @@ interface WorldMapProps {
     onDeepBog?: () => void;
     onMimicStep?: () => void;
     onQuicksandDrift?: (newQ: number, newR: number) => void;
+    teamMembers?: CharacterStats[];  // 白龍馬龍騰：隊友選擇
 }
 
 // --- Memoized Static Layer ---
@@ -134,9 +138,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     onRollDice, onMoveCharacter, onBack, initialQ, initialR,
     roleTrait, todayCompletedQuestIds, onShowMessage,
     dbEntities = [], worldState, onEntityTrigger, moveMultiplier = 1, onUpdateMultiplier, onUpdateUserData, onUpdateSteps,
+    isIrritable = false,
     onExchangeGoldenDice,
     onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze, onLavaDoT, onGeyserKnockback,
     onDeepBog, onMimicStep, onQuicksandDrift,
+    teamMembers = [],
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
@@ -162,6 +168,17 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     const [ignoreTerrainThisTurn, setIgnoreTerrainThisTurn] = useState(false); // i5 步雲履
     const [combatStatBuff, setCombatStatBuff] = useState(false);               // i9 九轉金丹
     const [hasDeathShield, setHasDeathShield] = useState(false);               // i3 錦鑭袈裟
+    const [mimicImmune, setMimicImmune] = useState(false);                     // i2 火眼金睛
+    const [sealMonsterPassive, setSealMonsterPassive] = useState(false);        // i4 如意金剛琢
+    const [d1CombatBuff, setD1CombatBuff] = useState<number>(1.0);             // d1 五毒精魄
+    const [d2LevelDebuff, setD2LevelDebuff] = useState<number>(0);             // d2 業障石
+    const [d6ForceMimic, setD6ForceMimic] = useState(false);                   // d6 貪狼之爪
+    const [facing, setFacing] = useState(0);                                    // 當前面向（0–5）
+    const [dingXinZhuActive, setDingXinZhuActive] = useState(false);           // 沙悟淨 定心杵：位移免疫
+    const [noCritIncoming, setNoCritIncoming] = useState(false);               // 沙悟淨 定心杵：禁爆擊
+    const [dragonSoarPending, setDragonSoarPending] = useState(false);         // 白龍馬 龍騰：移動後顯示
+    const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false);           // 技能面板開關
+    const [dragonSoarTarget, setDragonSoarTarget] = useState<CharacterStats | null>(null); // 龍騰隊友選擇
 
     const [dismissedCombatKeys, _setDismissedCombatKeys] = useState<Set<string>>(() => {
         try {
@@ -338,7 +355,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
             // 2. Exact Match: Only for non-monster entities (like chests/encounters) when steps are finished
             if (stepsRemaining === 0) {
-                const exactMatch = allEntities.find(e => e.q === userData.CurrentQ && e.r === userData.CurrentR && e.type !== 'monster');
+                const exactMatch = allEntities.find(e =>
+                    e.q === userData.CurrentQ && e.r === userData.CurrentR &&
+                    e.type !== 'monster' && e.type !== 'trap'  // trap 對玩家無效
+                );
                 if (exactMatch) {
                     if (exactMatch.type === 'portal') {
                         if (!todayCompletedQuestIds || todayCompletedQuestIds.length === 0) {
@@ -346,7 +366,35 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             return;
                         }
                     }
-                    onEntityTrigger(exactMatch);
+                    if (exactMatch.type === 'chest' && mimicImmune) {
+                        onEntityTrigger({ ...exactMatch, _mimicImmune: true });
+                        setMimicImmune(false);
+                    } else if (exactMatch.type === 'chest' && d6ForceMimic) {
+                        onEntityTrigger({ ...exactMatch, _forceMimic: true });
+                        setD6ForceMimic(false);
+                    } else {
+                        onEntityTrigger(exactMatch);
+                    }
+                }
+
+                // d5 業火之種：檢查當格是否有陷阱 + 怪物共存（玩家踩過陷阱格並觸發攻擊）
+                const trapOnHex = allEntities.find(e =>
+                    e.q === userData.CurrentQ && e.r === userData.CurrentR && e.type === 'trap'
+                );
+                const monsterOnHex = allEntities.find(e =>
+                    e.q === userData.CurrentQ && e.r === userData.CurrentR && e.type === 'monster'
+                );
+                if (trapOnHex && monsterOnHex) {
+                    applyTrapDamage(String(trapOnHex.id), String(monsterOnHex.id))
+                        .then(res => {
+                            if (res.success) {
+                                onShowMessage(res.message, 'success');
+                                if (res.killed) {
+                                    onUpdateUserData({ removeEntityId: monsterOnHex.id } as any);
+                                }
+                            }
+                        })
+                        .catch(() => { /* non-critical */ });
                 }
             }
         }
@@ -439,15 +487,21 @@ export const WorldMap: React.FC<WorldMapProps> = ({
             if (currentHex?.terrainId === 'mimic') {
                 onMimicStep?.();
             }
-            // 迷走流沙 (Quicksand): 回合結束被強制位移至隨機可行走鄰格。定心 Buff (q4) 免疫
+            // 迷走流沙 (Quicksand): 回合結束被強制位移至隨機可行走鄰格。定心 Buff (q4) 或 定心杵技能 免疫
             if (currentHex?.terrainId === 'quicksand' && !todayCompletedQuestIds.includes('q4')) {
-                const dirs = [{q:1,r:-1},{q:1,r:0},{q:0,r:1},{q:-1,r:1},{q:-1,r:0},{q:0,r:-1}];
-                const walkable = dirs
-                    .map(d => fullGrid.find(h => h.q === userData.CurrentQ + d.q && h.r === userData.CurrentR + d.r))
-                    .filter(h => h && !TERRAIN_TYPES[h.terrainId ?? '']?.impassable);
-                if (walkable.length > 0) {
-                    const target = walkable[Math.floor(Math.random() * walkable.length)]!;
-                    onQuicksandDrift?.(target.q, target.r);
+                if (dingXinZhuActive) {
+                    setDingXinZhuActive(false);
+                    setNoCritIncoming(false);
+                    onShowMessage('定心杵護身！流沙位移被抵消。', 'info');
+                } else {
+                    const dirs = [{q:1,r:-1},{q:1,r:0},{q:0,r:1},{q:-1,r:1},{q:-1,r:0},{q:0,r:-1}];
+                    const walkable = dirs
+                        .map(d => fullGrid.find(h => h.q === userData.CurrentQ + d.q && h.r === userData.CurrentR + d.r))
+                        .filter(h => h && !TERRAIN_TYPES[h.terrainId ?? '']?.impassable);
+                    if (walkable.length > 0) {
+                        const target = walkable[Math.floor(Math.random() * walkable.length)]!;
+                        onQuicksandDrift?.(target.q, target.r);
+                    }
                 }
             }
             // i5 步雲履：回合結束時清除地形免疫 buff
@@ -734,12 +788,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                             // Determine facing direction based on movement
                             const newFacing = getHexDirection(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
+                            setFacing(newFacing >= 0 ? newFacing : 0);
 
                             // 平滑鏡冰 (Slippery Ice): forced slide in movement direction until hitting impassable/boundary
-                            // 謙卑 Buff (q5 completed) grants immunity
+                            // 謙卑 Buff (q5 completed) 或 定心杵技能 grants immunity
                             const hasHumilityBuff = todayCompletedQuestIds.includes('q5');
                             const landingHex = fullGrid.find(h => h.q === actualTargetQ && h.r === actualTargetR);
-                            if (landingHex?.terrainId === 'slippery_slope' && !hasHumilityBuff) {
+                            if (landingHex?.terrainId === 'slippery_slope' && !hasHumilityBuff && !dingXinZhuActive) {
                                 const slideDir = newFacing >= 0 ? newFacing : getClosestHexDir(userData.CurrentQ, userData.CurrentR, actualTargetQ, actualTargetR);
                                 const dir = HEX_DIRECTIONS[slideDir];
                                 let slideQ = actualTargetQ;
@@ -768,6 +823,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
                             // Optimistically update facing locally and to parent
                             onUpdateUserData({ Facing: newFacing });
+
+                            // 白龍馬 龍騰：移動後有剩餘 AP 時開放轉讓
+                            const remainingAfterMove = stepsRemaining - actualCost;
+                            if (userData.Role === '白龍馬' && (userData.Streak ?? 0) >= 3 && remainingAfterMove > 0) {
+                                setDragonSoarPending(true);
+                            }
+
+                            // 定心杵：若已激活，此次移動後清除（保護一次）
+                            if (dingXinZhuActive && landingHex?.terrainId === 'slippery_slope') {
+                                setDingXinZhuActive(false);
+                                setNoCritIncoming(false);
+                                onShowMessage('定心杵護身！滑行被抵消。', 'info');
+                            }
 
                             // 深淵泥淖：強制消耗剩餘 AP，並通知 page.tsx 設下回合減半
                             if (triggerDeepBog) {
@@ -919,6 +987,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse"></span>
                         )}
                     </button>
+                    {(userData.Streak ?? 0) >= 3 && (
+                        <button aria-label="技能" onClick={() => setIsSkillPanelOpen(v => !v)} className={`flex items-center justify-center p-2 md:p-3 rounded-xl md:rounded-2xl transition-all border active:scale-95 shadow-lg relative ${isSkillPanelOpen ? 'bg-yellow-500 text-white border-yellow-400' : 'bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600 hover:text-white border-yellow-500/20'}`}>
+                            <span className="text-base leading-none">✦</span>
+                            {dragonSoarPending && <span className="absolute -top-1 -right-1 w-3 h-3 bg-blue-400 rounded-full border-2 border-slate-900 animate-pulse"></span>}
+                        </button>
+                    )}
                     <button aria-label="返回定課" onClick={onBack} className="flex items-center gap-1.5 px-3 py-2 md:px-6 md:py-3 bg-slate-800 hover:bg-slate-700 text-white font-black rounded-xl md:rounded-2xl transition-all border border-white/10 shadow-xl active:scale-95 text-xs md:text-sm"><ChevronLeft size={14} /> <span className="hidden md:inline">返回定課</span><span className="md:hidden">返回</span></button>
                 </div>
             </header>
@@ -1340,8 +1414,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 isObscured={(roleTrait?.name === '沙悟淨' && roleTrait?.isCursed) ||
                     (combatTarget ? isFogEntityObscured(combatTarget.q, combatTarget.r) : false)}
                 isProcessing={isProcessingItem}
-                statBuffMultiplier={combatStatBuff ? 1.5 : 1.0}
+                statBuffMultiplier={(combatStatBuff ? 1.5 : 1.0) * d1CombatBuff}
                 hasDeathShield={hasDeathShield}
+                isIrritable={isIrritable}
+                streak={userData.Streak ?? 0}
+                d1StatBuff={d1CombatBuff}
+                d2LevelDebuff={d2LevelDebuff}
+                noCritIncoming={noCritIncoming}
                 onAttack={async () => {
                     if (isProcessingItem || !combatTarget) return;
                     setIsProcessingItem(true);
@@ -1353,11 +1432,19 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             flankingMultiplier: combatFlankingMultiplier,
                             remainingAP: Math.max(1, stepsRemaining),
                             statBuffMultiplier: combatStatBuff ? 1.5 : 1.0,
-                            hasDeathShield
+                            hasDeathShield,
+                            sealMonsterPassive,
+                            d1StatBuff: d1CombatBuff,
+                            monsterLevelDebuff: d2LevelDebuff,
+                            noCritIncoming,
                         });
 
-                        // i9 九轉金丹：戰鬥結束後清除 buff（無論勝負）
+                        // 戰鬥結束後清除所有戰鬥 buff（無論勝負）
                         setCombatStatBuff(false);
+                        setSealMonsterPassive(false);
+                        setD1CombatBuff(1.0);
+                        setD2LevelDebuff(0);
+                        setNoCritIncoming(false);
 
                         if (res.success) {
                             // i3 錦鑭袈裟：若觸發護身，更新 shield 狀態
@@ -1422,6 +1509,155 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 }}
             />
 
+            {/* Skill Panel */}
+            {isSkillPanelOpen && (userData.Streak ?? 0) >= 3 && (() => {
+                const role = userData.Role;
+                const streak = userData.Streak ?? 0;
+                const HEX_DIRS_SKILL = [{q:1,r:-1},{q:1,r:0},{q:0,r:1},{q:-1,r:1},{q:-1,r:0},{q:0,r:-1}];
+                const dir = HEX_DIRS_SKILL[facing];
+                const prajnaLine = dir ? [1,2,3].map(i => ({ q: userData.CurrentQ + dir.q*i, r: userData.CurrentR + dir.r*i })) : [];
+                const monstersInLine = dbEntities.filter(e => e.type === 'monster' && e.is_active !== false && prajnaLine.some(h => h.q === e.q && h.r === e.r));
+                const teammatesInLine = teamMembers.filter(m => prajnaLine.some(h => h.q === m.CurrentQ && h.r === m.CurrentR));
+                const adjacentChest = dbEntities.find(e => e.type === 'chest' && e.is_active !== false && getHexDist(userData.CurrentQ, userData.CurrentR, e.q, e.r) === 1);
+                const somersaultUsed = todayCompletedQuestIds.includes('skill_jintoudun');
+
+                return (
+                    <div className="absolute top-[56px] md:top-[80px] right-3 md:right-6 z-30 w-72 md:w-80 bg-slate-900/95 border border-yellow-500/30 rounded-2xl p-4 shadow-2xl backdrop-blur-md space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-black text-yellow-400 uppercase tracking-widest">✦ 精進氣場技能（連打 {streak} 天）</span>
+                            <button onClick={() => setIsSkillPanelOpen(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
+                        </div>
+
+                        {role === '孫悟空' && (
+                            <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black text-white">筋斗雲</span>
+                                    <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full">無消耗・1日冷卻</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">本回合擲骰結果 ×2</p>
+                                <button
+                                    disabled={somersaultUsed || isRolling || isProcessingItem}
+                                    onClick={async () => {
+                                        if (onUpdateMultiplier) onUpdateMultiplier(2);
+                                        await recordSomersaultUsed(userData.UserID);
+                                        onShowMessage('筋斗雲！本回合擲骰步數翻倍！', 'success');
+                                        setIsSkillPanelOpen(false);
+                                    }}
+                                    className="w-full py-2 rounded-xl text-xs font-black bg-yellow-600 hover:bg-yellow-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >{somersaultUsed ? '今日已使用' : '發動'}</button>
+                            </div>
+                        )}
+
+                        {role === '豬八戒' && (
+                            <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black text-white">九齒釘耙</span>
+                                    <span className="text-[10px] text-orange-400 bg-orange-400/10 px-2 py-0.5 rounded-full">消耗 1 AP</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">{adjacentChest ? '強制開啟相鄰寶箱，必得 1 能源骰子' : '挖掘當前格（20% 機率獲得金幣）'}</p>
+                                <button
+                                    disabled={stepsRemaining < 1 || isProcessingItem}
+                                    onClick={async () => {
+                                        setIsProcessingItem(true);
+                                        try {
+                                            const res = await useNineToothRake(userData.UserID, adjacentChest?.id ?? null);
+                                            onShowMessage(res.message, 'success');
+                                            if (onUpdateSteps) onUpdateSteps(stepsRemaining - 1);
+                                            if (res.gotDice) onUpdateUserData({ EnergyDice: (userData.EnergyDice ?? 0) + 1 });
+                                            if (res.coinAmount) onUpdateUserData({ Coins: (userData.Coins ?? 0) + res.coinAmount });
+                                        } catch (e: any) { onShowMessage(e.message, 'error'); }
+                                        finally { setIsProcessingItem(false); setIsSkillPanelOpen(false); }
+                                    }}
+                                    className="w-full py-2 rounded-xl text-xs font-black bg-orange-600 hover:bg-orange-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >發動</button>
+                            </div>
+                        )}
+
+                        {role === '沙悟淨' && (
+                            <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black text-white">定心杵</span>
+                                    <span className="text-[10px] text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded-full">消耗 1 AP</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">下次移動：免疫流沙/滑行位移；下次受攻擊：敵方不觸發爆擊</p>
+                                <button
+                                    disabled={stepsRemaining < 1 || dingXinZhuActive || isProcessingItem}
+                                    onClick={() => {
+                                        setDingXinZhuActive(true);
+                                        setNoCritIncoming(true);
+                                        if (onUpdateSteps) onUpdateSteps(stepsRemaining - 1);
+                                        onShowMessage('定心杵激活！下次受到的位移與爆擊將被抵消。', 'success');
+                                        setIsSkillPanelOpen(false);
+                                    }}
+                                    className="w-full py-2 rounded-xl text-xs font-black bg-cyan-700 hover:bg-cyan-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >{dingXinZhuActive ? '已激活' : '發動'}</button>
+                            </div>
+                        )}
+
+                        {role === '白龍馬' && (
+                            <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black text-white">龍騰</span>
+                                    <span className="text-[10px] text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">移動後觸發</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">移動後，將剩餘 AP 以 1:1 轉給任意隊友（EnergyDice）</p>
+                                {dragonSoarPending && teamMembers.length > 0 ? (
+                                    <div className="space-y-1">
+                                        <p className="text-[10px] text-blue-300">選擇接收隊友（當前剩餘 {stepsRemaining} AP）：</p>
+                                        {teamMembers.map(m => (
+                                            <button key={m.UserID}
+                                                onClick={async () => {
+                                                    setIsProcessingItem(true);
+                                                    try {
+                                                        await dragonSoarDonate(userData.UserID, m.UserID, stepsRemaining);
+                                                        onShowMessage(`龍騰！${stepsRemaining} AP 已轉給 ${m.Name}。`, 'success');
+                                                        if (onUpdateSteps) onUpdateSteps(0);
+                                                        setDragonSoarPending(false);
+                                                    } catch (e: any) { onShowMessage(e.message, 'error'); }
+                                                    finally { setIsProcessingItem(false); setIsSkillPanelOpen(false); }
+                                                }}
+                                                className="w-full py-1.5 rounded-lg text-xs font-bold bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+                                            >{m.Name}</button>
+                                        ))}
+                                        <button onClick={() => { setDragonSoarPending(false); setIsSkillPanelOpen(false); }} className="w-full py-1.5 rounded-lg text-xs text-slate-400 hover:text-white">跳過</button>
+                                    </div>
+                                ) : (
+                                    <p className="text-[10px] text-slate-500">{dragonSoarPending ? '無隊友可轉讓' : '移動後自動開放'}</p>
+                                )}
+                            </div>
+                        )}
+
+                        {role === '唐三藏' && (
+                            <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-sm font-black text-white">般若咒</span>
+                                    <span className="text-[10px] text-violet-400 bg-violet-400/10 px-2 py-0.5 rounded-full">消耗 2 AP</span>
+                                </div>
+                                <p className="text-[11px] text-slate-400">面向方向前 3 格直線：怪物受 神識×10 真傷；隊友回復等量 HP</p>
+                                <p className="text-[10px] text-slate-500">前方目標：{monstersInLine.length} 個怪物・{teammatesInLine.length} 位隊友</p>
+                                <button
+                                    disabled={stepsRemaining < 2 || isProcessingItem}
+                                    onClick={async () => {
+                                        setIsProcessingItem(true);
+                                        try {
+                                            const res = await usePrajnaMantra(
+                                                userData.UserID,
+                                                monstersInLine.map(e => String(e.id)),
+                                                teammatesInLine.map(m => m.UserID),
+                                            );
+                                            onShowMessage(res.message, 'success');
+                                            if (onUpdateSteps) onUpdateSteps(stepsRemaining - 2);
+                                        } catch (e: any) { onShowMessage(e.message, 'error'); }
+                                        finally { setIsProcessingItem(false); setIsSkillPanelOpen(false); }
+                                    }}
+                                    className="w-full py-2 rounded-xl text-xs font-black bg-violet-700 hover:bg-violet-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                >發動</button>
+                            </div>
+                        )}
+                    </div>
+                );
+            })()}
+
             {/* Game Inventory Modal layer */}
             <GameInventoryModal
                 isOpen={isInventoryOpen}
@@ -1450,6 +1686,47 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             }
                             if (itemId === 'i3') {   // 錦鑭袈裟：抵擋一次致死傷害
                                 setHasDeathShield(true);
+                            }
+                            if (itemId === 'i2') {   // 火眼金睛：下次開箱跳過 Mimic 判定
+                                setMimicImmune(true);
+                            }
+                            if (itemId === 'i4') {   // 如意金剛琢：本場戰鬥封鎖怪物被動
+                                setSealMonsterPassive(true);
+                            }
+                            if (itemId === 'd1') {   // 五毒精魄：全屬性 +20%，天命任務完成 +40%
+                                const cureTaskId = ROLE_CURE_MAP[userData.Role]?.cureTaskId;
+                                const hasDestinyToday = !!(cureTaskId && todayCompletedQuestIds?.includes(cureTaskId));
+                                setD1CombatBuff(hasDestinyToday ? 1.4 : 1.2);
+                            }
+                            if (itemId === 'd2') {   // 業障石：本場怪物降 3 等
+                                setD2LevelDebuff(3);
+                            }
+                            if (itemId === 'd4') {   // 混沌碎片：依服務端 outcome 處理
+                                const effect = res.itemEffect?.type;
+                                if (effect === 'd4_teleport') {
+                                    // 隨機傳送到地圖上非中心格
+                                    const validHexes = Array.from({ length: 8 }, (_, i) => i + 3)
+                                        .flatMap(ring => getHexRegion(ring).map(p => ({ q: userData.CurrentQ + p.q, r: userData.CurrentR + p.r })));
+                                    if (validHexes.length > 0) {
+                                        const pick = validHexes[Math.floor(Math.random() * validHexes.length)];
+                                        onMoveCharacter(pick.q, pick.r, 0);
+                                    }
+                                } else if (effect === 'd4_shop') {
+                                    setIsShopOpen(true);
+                                }
+                                // d4_clear 已在服務端清除怪物，無需額外客戶端操作
+                            }
+                            if (itemId === 'd6') {   // 貪狼之爪：下次開箱強制觸發 Mimic
+                                setD6ForceMimic(true);
+                            }
+                            if (itemId === 'i6') {   // 芭蕉扇：隨機推移玩家位置 ±1 格，清空所在格 MapEntities
+                                const neighbors = getHexRegion(1).filter(p => !(p.q === 0 && p.r === 0));
+                                if (neighbors.length > 0) {
+                                    const pick = neighbors[Math.floor(Math.random() * neighbors.length)];
+                                    const newQ = userData.CurrentQ + pick.q;
+                                    const newR = userData.CurrentR + pick.r;
+                                    onMoveCharacter(newQ, newR, 1);
+                                }
                             }
                             // Close inventory automatically for convenience
                             setIsInventoryOpen(false);

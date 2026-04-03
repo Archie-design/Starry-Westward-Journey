@@ -55,7 +55,11 @@
       "Bash(git push:*)",
       "Bash(git commit -m 'fix: handle q1_dawn in undo logic by matching both q1 and q1_dawn questIds:*)",
       "Bash(git commit -m ':*)",
-      "Bash(grep -l \"Course\\\\|peak.*trial\\\\|PeakTrial\" /Users/keke/starry-westward-journey/app/actions/*.ts)"
+      "Bash(grep -l \"Course\\\\|peak.*trial\\\\|PeakTrial\" /Users/keke/starry-westward-journey/app/actions/*.ts)",
+      "Bash(grep -n \"IsBlessed\\\\|w3Compliant\\\\|quest_draw_history\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
+      "Bash(grep \"ADD COLUMN\\\\|IsBlessed\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
+      "Bash(wc -l /Users/keke/starry-westward-journey/app/actions/*.ts)",
+      "Bash(grep -n \"CREATE TABLE.*TeamSettings\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)"
     ]
   }
 }

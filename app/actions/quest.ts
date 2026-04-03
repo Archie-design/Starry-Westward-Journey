@@ -104,11 +104,16 @@ export async function processCheckInTransaction(
         const myInventory = typeof userData.Inventory === 'string' ? JSON.parse(userData.Inventory) : (userData.Inventory || []);
         let teamInventory: string[] = [];
 
+        let d7BuffActive = false;
         if (userData.TeamName) {
-            const tsRes = await client.query(`SELECT inventory FROM "TeamSettings" WHERE "team_name" = $1`, [userData.TeamName]);
+            const tsRes = await client.query(`SELECT inventory, d7_activated_at FROM "TeamSettings" WHERE "team_name" = $1`, [userData.TeamName]);
             if (tsRes.rowCount && tsRes.rowCount > 0) {
                 const tsData = tsRes.rows[0];
                 teamInventory = typeof tsData.inventory === 'string' ? JSON.parse(tsData.inventory) : (tsData.inventory || []);
+                if (tsData.d7_activated_at) {
+                    const elapsed = Date.now() - new Date(tsData.d7_activated_at).getTime();
+                    d7BuffActive = elapsed < 48 * 3600 * 1000;
+                }
             }
         }
 
@@ -123,6 +128,9 @@ export async function processCheckInTransaction(
 
         // a4: 幌金繩 — 參加心成活動（w2）×1.5
         if (teamInventory.includes('a4') && questId.startsWith('w2')) expMultiplier *= 1.5;
+
+        // d7 渾天至寶珠：全隊梵天庇護期間定課修為 ×2
+        if (d7BuffActive) expMultiplier *= 2;
 
         let finalQuestReward = Math.ceil(baseReward * expMultiplier);
 

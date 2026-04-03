@@ -37,41 +37,27 @@ export async function exchangeGoldenDiceToEnergy(userId: string) {
 
 /**
  * 在開箱前使用黃金骰子進行「加持」
- * 消耗 1 枚黃金骰子，確保下一次開箱必定获得最高獎勵且無視寶箱怪
+ * 消耗 1 枚黃金骰子，設定 IsBlessed = true，下次 handleChestOpen 保證最高獎勵且無視寶箱怪
  */
 export async function blessChestWithGoldenDice(userId: string) {
     const supabase = createClient(supabaseUrl, supabaseActionKey);
 
     const { data: user, error: userErr } = await supabase
         .from('CharacterStats')
-        .select('GoldenDice')
+        .select('GoldenDice, IsBlessed')
         .eq('UserID', userId)
         .single();
 
     if (userErr || !user) throw new Error("玩家資料讀取失敗");
     if ((user.GoldenDice || 0) < 1) throw new Error("黃金骰子不足。");
+    if (user.IsBlessed) return { success: true, message: "已有黃金護體！開箱時將無視寶箱怪並獲最高獎勵。" };
 
-    // 這裡可以透過設定一個臨時狀態 (Flag) 在 CharacterStats 中，
-    // 例如 IsBlessed: true，然後在 handleChestOpen 中判斷。
-    // 但為了簡化，我們先實現在這裡直接消耗並標記。
-    
-    // 假設我們在數據表中增加了 IsBlessed 欄位
     const { error: updateErr } = await supabase
         .from('CharacterStats')
-        .update({
-            GoldenDice: user.GoldenDice - 1,
-            // 標記為加持狀態，有效期直到下一次開箱
-            // 這需要資料庫支援此欄位
-        })
+        .update({ GoldenDice: user.GoldenDice - 1, IsBlessed: true })
         .eq('UserID', userId);
 
-    // 如果不改欄位，我們可以讓這個 function 直接回傳「加持成功」，
-    // 然後讓前端在呼叫 handleChestOpen 時帶入參數。
-    // 但為了安全，後端檢核更好。
-    
-    // 這裡暫時回傳成功，並提示玩家下一次開箱將受到保佑。
-    return {
-        success: true,
-        message: "黃金骰子光芒閃爍！接下來的寶箱開拓將無往不利。"
-    };
+    if (updateErr) throw new Error("加持失敗：" + updateErr.message);
+
+    return { success: true, message: "黃金光輝護體！下次開箱將無視寶箱怪並獲得最豐厚獎勵 +3 骰！" };
 }

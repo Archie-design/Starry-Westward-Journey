@@ -33,6 +33,8 @@ export interface CharacterStats {
   MaxHP?: number;
   Facing?: number; // 0-5 direction
   GoldenDice?: number;
+  IsBlessed?: boolean;
+  DemonDropBoostSeasonal?: number; // d3 心魔殘骸累積加成（每次 +0.05），預設 0
   Birthday?: string; // ISO date string YYYY-MM-DD
   IsCommandant?: boolean; // 大隊長
   IsGM?: boolean;         // GM 遊戲管理員
@@ -56,6 +58,7 @@ export interface TeamSettings {
   mandatory_quest_week?: string;     // 本次抽籤週一日期（YYYY-MM-DD）
   quest_draw_history?: string[];     // 已抽過的 QuestID 陣列
   inventory?: any;
+  d7_activated_at?: string;          // d7 渾天至寶珠啟動時間（ISO string），null = 未啟用
 }
 
 export interface DailyLog {
@@ -89,6 +92,7 @@ export interface SystemSettings {
   WorldStateMsg?: string;
   RegistrationMode?: 'open' | 'roster'; // 'open' = 自由註冊；'roster' = 名單驗證
   VolunteerPassword?: string;
+  PeakTrialScanPassword?: string;        // 巔峰試煉大隊長掃碼密碼
 }
 
 export interface W4Application {
@@ -244,7 +248,12 @@ export interface PeakTrial {
   description?: string;
   start_date?: string;
   end_date?: string;
+  date?: string;
+  time?: string;
+  location?: string;
+  battalion_name?: string;
   max_participants?: number;
+  registration_count?: number;
   is_active: boolean;
   created_by?: string;
   created_at: string;
@@ -256,6 +265,8 @@ export interface PeakTrialRegistration {
   user_id: string;
   user_name?: string;
   squad_name?: string;
+  battalion_name?: string;
+  attended?: boolean;
   registered_at: string;
 }
 

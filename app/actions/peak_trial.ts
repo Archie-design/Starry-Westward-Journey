@@ -9,7 +9,7 @@ const _key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SU
 export async function listPeakTrials() {
     const supabase = createClient(_url, _key);
     const { data, error } = await supabase
-        .from('PeakTrials')
+        .from('PeakTrialsWithCount')
         .select('*')
         .order('created_at', { ascending: false });
 
@@ -20,33 +20,24 @@ export async function listPeakTrials() {
 export async function upsertPeakTrial(trial: Partial<PeakTrial> & { title: string }) {
     const supabase = createClient(_url, _key);
 
+    const fields = {
+        title: trial.title,
+        description: trial.description ?? null,
+        start_date: trial.start_date ?? null,
+        end_date: trial.end_date ?? null,
+        date: trial.date ?? null,
+        time: trial.time ?? null,
+        location: trial.location ?? null,
+        battalion_name: trial.battalion_name ?? null,
+        max_participants: trial.max_participants ?? null,
+        is_active: trial.is_active ?? true,
+    };
+
     if (trial.id) {
-        // Update
-        const { error } = await supabase
-            .from('PeakTrials')
-            .update({
-                title: trial.title,
-                description: trial.description ?? null,
-                start_date: trial.start_date ?? null,
-                end_date: trial.end_date ?? null,
-                max_participants: trial.max_participants ?? null,
-                is_active: trial.is_active ?? true,
-            })
-            .eq('id', trial.id);
+        const { error } = await supabase.from('PeakTrials').update(fields).eq('id', trial.id);
         if (error) return { success: false, error: error.message };
     } else {
-        // Insert
-        const { error } = await supabase
-            .from('PeakTrials')
-            .insert({
-                title: trial.title,
-                description: trial.description ?? null,
-                start_date: trial.start_date ?? null,
-                end_date: trial.end_date ?? null,
-                max_participants: trial.max_participants ?? null,
-                is_active: trial.is_active ?? true,
-                created_by: trial.created_by ?? null,
-            });
+        const { error } = await supabase.from('PeakTrials').insert({ ...fields, created_by: trial.created_by ?? null });
         if (error) return { success: false, error: error.message };
     }
     return { success: true };

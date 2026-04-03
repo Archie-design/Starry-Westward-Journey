@@ -66,7 +66,7 @@ export async function useGameItem(userId: string, itemId: string) {
 
     const { data: user, error: fetchErr } = await supabase
         .from('CharacterStats')
-        .select('GameInventory, HP, MaxHP, Role, Spirit, Physique, Charisma, Savvy, Luck, Potential')
+        .select('GameInventory, HP, MaxHP, Role, Spirit, Physique, Charisma, Savvy, Luck, Potential, EnergyDice, CurrentQ, CurrentR, TeamName, DemonDropBoostSeasonal')
         .eq('UserID', userId)
         .single();
 
@@ -106,6 +106,65 @@ export async function useGameItem(userId: string, itemId: string) {
         const lowest = statValues.reduce((min, cur) => cur.val < min.val ? cur : min);
         patch[lowest.stat] = lowest.val + 1;
         resultMsg = `使用了 ${targetItem.name}！${lowest.stat} 永久提升 1 點（${lowest.val} → ${lowest.val + 1}）。`;
+
+    } else if (itemId === 'd3') {
+        // 心魔殘骸：立刻 +2 EnergyDice + 本賽季心魔掉落率永久 +5%
+        const newDice = (user.EnergyDice ?? 0) + 2;
+        const newBoost = Math.round(((user.DemonDropBoostSeasonal ?? 0) + 0.05) * 1000) / 1000;
+        patch.EnergyDice = newDice;
+        patch.DemonDropBoostSeasonal = newBoost;
+        resultMsg = `心魔殘骸消耗！獲得 +2 能源骰子，心魔怪掉落率永久 +5%（當前 +${Math.round(newBoost * 100)}%）。`;
+
+    } else if (itemId === 'd4') {
+        // 混沌碎片：服務端擲 d20，回傳 outcome
+        const roll = Math.floor(Math.random() * 20) + 1;
+        if (roll <= 5) {
+            // 傳送：回傳 type，客戶端負責選目標格
+            itemEffect = { type: 'd4_teleport', roll };
+            resultMsg = `混沌碎片！骰出 ${roll}，空間錯位！即將傳送至隨機地格...`;
+        } else if (roll <= 15) {
+            // 清除當格所有怪物
+            await supabase.from('MapEntities')
+                .delete()
+                .eq('q', user.CurrentQ ?? 0)
+                .eq('r', user.CurrentR ?? 0)
+                .eq('type', 'monster');
+            itemEffect = { type: 'd4_clear', roll };
+            resultMsg = `混沌碎片！骰出 ${roll}，業力風暴清除當格所有怪物！`;
+        } else {
+            // 開啟 NPC 商店
+            itemEffect = { type: 'd4_shop', roll };
+            resultMsg = `混沌碎片！骰出 ${roll}，稀有商人現身！`;
+        }
+
+    } else if (itemId === 'd5') {
+        // 業火之種：在當前格插入 trap MapEntity（72hr TTL）
+        const expiresAt = new Date(Date.now() + 72 * 3600 * 1000).toISOString();
+        const { error: trapErr } = await supabase.from('MapEntities').insert({
+            q: user.CurrentQ ?? 0,
+            r: user.CurrentR ?? 0,
+            type: 'trap',
+            name: '業火之種',
+            icon: '🔥',
+            owner_id: userId,
+            data: { placedBy: userId, expiresAt, trapDamageBase: 50 },
+            is_active: true,
+        });
+        if (trapErr) throw new Error('陷阱埋設失敗：' + trapErr.message);
+        resultMsg = `業火之種埋設！此格陷阱將在 72 小時內引爆首個到達的怪物（lv × 50 真實傷害）。`;
+
+    } else if (itemId === 'd7') {
+        // 渾天至寶珠：更新 TeamSettings.d7_activated_at
+        if (!user.TeamName) {
+            // 回滾庫存扣除（未加入隊伍無法啟動）
+            throw new Error('未加入隊伍，無法啟動梵天庇護。');
+        }
+        const { error: d7Err } = await supabase
+            .from('TeamSettings')
+            .update({ d7_activated_at: new Date().toISOString() })
+            .eq('team_name', user.TeamName);
+        if (d7Err) throw new Error('梵天庇護啟動失敗：' + d7Err.message);
+        resultMsg = `🌟 渾天至寶珠啟動！全隊 2 天「梵天庇護」開始：定課修為 ×2、五毒詛咒免疫、戰敗零懲罰！`;
 
     } else {
         // 其餘道具效果由前端/地圖/戰鬥系統處理，回傳 itemEffect 類型

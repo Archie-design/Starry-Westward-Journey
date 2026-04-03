@@ -56,6 +56,7 @@ export function ReviewModule() {
 
     const loadTrials = async () => {
         setPeakLoading(true);
+        // Use view with registration_count
         const res = await listPeakTrials();
         if (res.success) setTrials(res.trials);
         setPeakLoading(false);
@@ -282,10 +283,14 @@ export function ReviewModule() {
                                     placeholder="試煉名稱 *" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
                                 <input value={editingTrial.description || ''} onChange={e => setEditingTrial(prev => ({ ...prev, description: e.target.value }))}
                                     placeholder="說明（選填）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
-                                <input type="date" value={editingTrial.start_date || ''} onChange={e => setEditingTrial(prev => ({ ...prev, start_date: e.target.value }))}
-                                    className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
-                                <input type="date" value={editingTrial.end_date || ''} onChange={e => setEditingTrial(prev => ({ ...prev, end_date: e.target.value }))}
-                                    className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
+                                <input value={editingTrial.date || ''} onChange={e => setEditingTrial(prev => ({ ...prev, date: e.target.value }))}
+                                    placeholder="日期（顯示用，如 5/10）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
+                                <input value={editingTrial.time || ''} onChange={e => setEditingTrial(prev => ({ ...prev, time: e.target.value }))}
+                                    placeholder="時間（如 09:00–17:00）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
+                                <input value={editingTrial.location || ''} onChange={e => setEditingTrial(prev => ({ ...prev, location: e.target.value }))}
+                                    placeholder="地點（選填）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
+                                <input value={editingTrial.battalion_name || ''} onChange={e => setEditingTrial(prev => ({ ...prev, battalion_name: e.target.value }))}
+                                    placeholder="主辦大隊（選填）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
                                 <input type="number" value={editingTrial.max_participants || ''} onChange={e => setEditingTrial(prev => ({ ...prev, max_participants: parseInt(e.target.value) || undefined }))}
                                     placeholder="人數上限（選填）" className="bg-slate-950 border border-slate-800 rounded-xl p-3 text-white text-sm font-bold outline-none focus:border-violet-500" />
                             </div>

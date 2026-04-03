@@ -18,11 +18,18 @@ interface CombatModalProps {
     statBuffMultiplier?: number;  // i9 九轉金丹：1.5 = +50% all stats
     hasDeathShield?: boolean;     // i3 錦鑭袈裟：next lethal hit survives at 1 HP
     onCapture?: () => void;       // i1 紫金紅葫蘆：instant capture low-level monster
+    isIrritable?: boolean;        // 緊箍咒：孫悟空未完成 q2 當日，DEF -30%
+    streak?: number;              // 連續打卡天數，用於顯示技能加成
+    d1StatBuff?: number;          // d1 五毒精魄：1.2 or 1.4（預設 1.0 = 無加成）
+    d2LevelDebuff?: number;       // d2 業障石：怪物降幾等（預設 0 = 無減益）
+    noCritIncoming?: boolean;     // 沙悟淨 定心杵：敵方攻擊本場不觸發爆擊
 }
 
 export function CombatModal({
     isOpen, onClose, player, targetEntity, flankingMultiplier, remainingAP, isObscured, onAttack, isProcessing,
-    statBuffMultiplier = 1.0, hasDeathShield = false, onCapture
+    statBuffMultiplier = 1.0, hasDeathShield = false, onCapture,
+    isIrritable: isIrritableProp = false, streak = 0,
+    d1StatBuff = 1.0, d2LevelDebuff = 0, noCritIncoming = false,
 }: CombatModalProps) {
     const [imageError, setImageError] = useState(false);
 
@@ -35,9 +42,9 @@ export function CombatModal({
     const playerATK = Math.floor(((player.Level * 10) + (player.Physique * 2)) * statBuffMultiplier);
     let playerDEF = Math.floor((roleConfig ? roleConfig.baseDEF + (player.Physique * 1) : 50) * statBuffMultiplier);
 
-    // Check debuffs (simplified for UI display)
-    const isIrritable = player.Role === '孫悟空' && false; // TODO: Hook up real status
-    if (isIrritable) playerDEF *= 0.7;
+    // Check debuffs — isIrritableProp driven by q2 completion in page.tsx
+    const isIrritable = isIrritableProp;
+    if (isIrritable) playerDEF = Math.floor(playerDEF * 0.7);
 
     // i1 紫金紅葫蘆：收服條件（怪物等級 ≤ 玩家等級一半）
     const canCapture = !!onCapture && ((): boolean => {
@@ -196,8 +203,14 @@ export function CombatModal({
                         <div className="text-[10px] uppercase font-black tracking-widest text-slate-500 mb-1 flex items-center gap-1"><Zap size={12} /> AI 戰局推演</div>
                         <div className={`text-lg font-black ${winColor} tracking-wide`}>{winChance}</div>
                         <div className="flex flex-wrap gap-1 mt-1">
+                            {isIrritable && <span className="text-[10px] text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full">⚡ 緊箍咒：暴躁（DEF -30%）</span>}
                             {hasDeathShield && <span className="text-[10px] text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded-full">🥻 袈裟護身（致死免疫×1）</span>}
-                            {statBuffMultiplier > 1 && <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">💊 九轉金丹（全屬 ×{statBuffMultiplier}）</span>}
+                            {statBuffMultiplier > 1 && <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">💊 全屬 ×{statBuffMultiplier.toFixed(2).replace(/\.?0+$/, '')}</span>}
+                            {d1StatBuff > 1 && <span className="text-[10px] text-violet-400 bg-violet-400/10 px-2 py-0.5 rounded-full">🌀 五毒精魄（+{Math.round((d1StatBuff - 1) * 100)}% 全屬）</span>}
+                            {d2LevelDebuff > 0 && <span className="text-[10px] text-stone-400 bg-stone-400/10 px-2 py-0.5 rounded-full">🪨 業障石（怪物 -{d2LevelDebuff} 等）</span>}
+                            {noCritIncoming && <span className="text-[10px] text-cyan-400 bg-cyan-400/10 px-2 py-0.5 rounded-full">🪄 定心杵（敵方爆擊免疫）</span>}
+                            {streak >= 7 && <span className="text-[10px] text-purple-400 bg-purple-400/10 px-2 py-0.5 rounded-full">✦ 精進氣場（連打 {streak} 天·終極技能）</span>}
+                            {streak >= 3 && streak < 7 && <span className="text-[10px] text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">✦ 精進氣場（連打 {streak} 天·進階技能）</span>}
                         </div>
                     </div>
                     <div className="flex gap-3 w-full md:w-auto flex-wrap">
