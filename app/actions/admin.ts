@@ -120,12 +120,15 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             .eq('id', 'main_world_map')
             .single();
         const terrainMap: Record<string, string> = (mapWorldData?.data as any)?.terrain ?? {};
-        // Parse all terrain keys (format: "zone_subIdx_q,r") to build impassable coordinate set
+        // Parse all terrain keys (format: "zone_subIdx_q,r")
+        // Build: validHexes (has terrain = within map bounds) and impassableHexes (blocked terrain)
+        const validHexes = new Set<string>();
         const impassableHexes = new Set<string>();
         for (const [key, terrainId] of Object.entries(terrainMap)) {
+            // Key format: "center_0_q,r" or "zoneid_N_q,r" — extract last segment
+            const coords = key.split('_').slice(-1)[0]; // "q,r"
+            validHexes.add(coords);
             if (TERRAIN_TYPES[terrainId]?.impassable) {
-                // Key format: "center_0_q,r" or "zoneid_N_q,r" — extract last segment
-                const coords = key.split('_').slice(-1)[0]; // "q,r"
                 impassableHexes.add(coords);
             }
         }
@@ -158,6 +161,7 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
         for (let q = -R; q <= R; q++) {
             for (let r = Math.max(-R, -q - R); r <= Math.min(R, -q + R); r++) {
                 if (q === 0 && r === 0) continue; // Safe hub
+                if (!validHexes.has(`${q},${r}`)) continue; // Outside map bounds (black void)
                 if (occupiedSet.has(`${q},${r}`)) continue;
                 if (impassableHexes.has(`${q},${r}`)) continue;
                 const zone = getZoneId(q, r);
