@@ -921,10 +921,14 @@ export default function App() {
     setIsSyncing(true);
     try {
       const { data: targetLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID).eq('QuestID', quest.id).order('Timestamp', { ascending: false }).limit(1);
-      if (!targetLogs || targetLogs.length === 0) return;
+      if (!targetLogs || targetLogs.length === 0) {
+        setIsSyncing(false);
+        return;
+      }
       if (getLogicalDateStr(targetLogs[0].Timestamp) !== logicalTodayStr) {
         setModalMessage({ text: "因果已定，僅限回溯今日紀錄。", type: 'info' });
         setUndoTarget(null);
+        setIsSyncing(false);
         return;
       }
       await supabase.from('DailyLogs').delete().eq('id', targetLogs[0].id);
