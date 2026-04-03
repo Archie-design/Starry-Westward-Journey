@@ -920,7 +920,18 @@ export default function App() {
     if (!userData || !quest) return;
     setIsSyncing(true);
     try {
-      const { data: targetLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID).eq('QuestID', quest.id).order('Timestamp', { ascending: false }).limit(1);
+      // For q1, match both q1 and q1_dawn
+      const questIds = (quest.id === 'q1') ? ['q1', 'q1_dawn'] : [quest.id];
+      let targetLogs: any[] = [];
+
+      for (const qid of questIds) {
+        const { data } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID).eq('QuestID', qid).order('Timestamp', { ascending: false }).limit(1);
+        if (data && data.length > 0) {
+          targetLogs = data;
+          break;
+        }
+      }
+
       if (!targetLogs || targetLogs.length === 0) {
         setIsSyncing(false);
         return;
