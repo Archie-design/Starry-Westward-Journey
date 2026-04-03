@@ -919,6 +919,7 @@ export default function App() {
   const handleUndoCheckInAction = async (quest: Quest | null) => {
     if (!userData || !quest) return;
     setIsSyncing(true);
+    setUndoTarget(null); // Close confirmation modal immediately
     try {
       const res = await processUndoTransaction(userData.UserID, quest.id, quest.reward, quest.dice || 0);
 
@@ -927,7 +928,6 @@ export default function App() {
         const updatedLogs = (newLogs as DailyLog[]) || [];
         setLogs(updatedLogs);
         setUserData(res.user as CharacterStats);
-        setUndoTarget(null);
         setModalMessage({ text: "時光回溯成功，心識已歸位。", type: 'success' });
       } else {
         const { data: syncedLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
