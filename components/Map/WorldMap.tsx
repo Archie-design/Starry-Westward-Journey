@@ -1453,7 +1453,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                 onShowMessage('🥻 錦鑭袈裟護身！致命一擊被化解，保留 1 HP！', 'success');
                             }
 
-                            onShowMessage(res.message, res.isVictory ? 'success' : 'info');
+                            onShowMessage(res.message ?? '', res.isVictory ? 'success' : 'info');
 
                             if (res.isVictory && combatTarget.key) {
                                 setDismissedCombatKeys(prev => new Set(prev).add(getEntityKey(combatTarget)));
