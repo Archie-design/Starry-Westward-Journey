@@ -1,27 +1,14 @@
 'use server';
 
-import { connectDb } from '@/lib/db';
+import { createClient } from '@supabase/supabase-js';
 import { getLogicalDateStr } from '@/lib/utils/time';
-import { ROLE_CURE_MAP, ROLE_GROWTH_RATES, calculateLevelFromExp } from '@/lib/constants';
 import { checkAndUnlockAchievements } from './achievements';
 
-/** Calculate bonus dice and golden dice from quest title keywords */
-function calculateBonusDice(questTitle: string): { bonusDice: number; goldenDiceGain: number } {
-    let bonusDice = 0;
-    let goldenDiceGain = 0;
-    if (questTitle.includes('小天使通話') || questTitle.includes('與家人互動') || questTitle.includes('親證圓夢')) {
-        bonusDice += 1;
-    }
-    if (questTitle.includes('心成') || questTitle.includes('同學會') || questTitle.includes('定聚')) {
-        bonusDice += 2;
-    }
-    if (questTitle.includes('傳愛')) {
-        bonusDice += 1;
-    }
-    if (questTitle.includes('主題親證') || questTitle.includes('會長交接') || questTitle.includes('大會')) {
-        goldenDiceGain += 1;
-    }
-    return { bonusDice, goldenDiceGain };
+function getServiceClient() {
+    return createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 }
 
 export async function processCheckInTransaction(
@@ -31,241 +18,99 @@ export async function processCheckInTransaction(
     questReward: number,
     questDice: number = 0
 ) {
-    const client = await connectDb();
+    const supabase = getServiceClient();
+    const logicalToday = getLogicalDateStr();
 
-    try {
-        await client.query('BEGIN');
+    const { data, error } = await supabase.rpc('process_checkin', {
+        p_user_id:       userId,
+        p_quest_id:      questId,
+        p_quest_title:   questTitle,
+        p_quest_reward:  questReward,
+        p_quest_dice:    questDice,
+        p_logical_today: logicalToday,
+    });
 
-        // 1. Lock the user's CharacterStats row (排他鎖)
-        const statsRes = await client.query(
-            `SELECT * FROM "CharacterStats" WHERE "UserID" = $1 FOR UPDATE`,
-            [userId]
-        );
+    if (error) {
+        return { success: false, error: error.message };
+    }
 
-        if (statsRes.rowCount === 0) {
-            throw new Error(`查無此用戶: ${userId}`);
-        }
+    const result = data as {
+        success:       boolean;
+        error?:        string;
+        rewardCapped?: boolean;
+        user?:         any;
+    };
 
-        const userData = statsRes.rows[0];
-        const logicalTodayStr = getLogicalDateStr();
+    if (!result.success) {
+        return { success: false, error: result.error };
+    }
 
-        // Helper: logical date expression in SQL (Taiwan timezone, before-noon counts as previous day)
-        // Matches the client-side getLogicalDateStr() logic.
-        const logicalDateExpr = `CASE
-            WHEN EXTRACT(HOUR FROM "Timestamp" AT TIME ZONE 'Asia/Taipei') >= 12
-            THEN (date("Timestamp" AT TIME ZONE 'Asia/Taipei'))::text
-            ELSE (date("Timestamp" AT TIME ZONE 'Asia/Taipei') - INTERVAL '1 day')::text
-          END`;
+    // Background: achievement checks + retroactive team checks (fire and forget)
+    (async () => {
+        try {
+            await checkAndUnlockAchievements(userId, questId);
+        } catch (_) {}
 
-        // 2. Fetch daily logs to check if rewards are capped (only for 'q' quests)
-        // First 3 q-quests give full rewards; 4th+ still record (for curse-breaking) but give 0 rewards.
-        let rewardCapped = false;
-        if (questId.startsWith('q')) {
-            const logsRes = await client.query(
-                `SELECT COUNT(*) as count FROM "DailyLogs"
-                 WHERE "UserID" = $1 AND "QuestID" LIKE 'q%' AND ${logicalDateExpr} = $2`,
-                [userId, logicalTodayStr]
-            );
-            const dailyCount = parseInt(logsRes.rows[0].count, 10);
-            rewardCapped = dailyCount >= 3;
-        }
+        try {
+            const teamName: string | null = result.user?.TeamName ?? null;
+            const todayCalendar = new Date().toISOString().split('T')[0];
 
-        // 3. Prevent duplicate check-in for the same quest today/week
-        if (questId.startsWith('q')) {
-            // q1 與 q1_dawn 互斥：同一天只能有其一
-            const q1Variants = (questId === 'q1' || questId === 'q1_dawn')
-                ? ['q1', 'q1_dawn']
-                : [questId];
+            if ((questId === 'q1' || questId === 'q1_dawn') && teamName) {
+                // Trigger achievements for teammates who also punched today
+                const { data: teammates } = await supabase
+                    .from('CharacterStats')
+                    .select('UserID')
+                    .eq('TeamName', teamName)
+                    .neq('UserID', userId);
 
-            const placeholders = q1Variants.map((_, i) => `$${i + 2}`).join(', ');
-            const dupCheck = await client.query(
-                `SELECT COUNT(*) as count FROM "DailyLogs"
-                 WHERE "UserID" = $1 AND "QuestID" IN (${placeholders}) AND ${logicalDateExpr} = $${q1Variants.length + 2}`,
-                [userId, ...q1Variants, logicalTodayStr]
-            );
-            if (parseInt(dupCheck.rows[0].count, 10) > 0) {
-                throw new Error(
-                    questId === 'q1_dawn'
-                        ? "今日已完成打拳，無法重複記錄。"
-                        : "此定課今日已完成。"
-                );
-            }
-        }
+                if (teammates && teammates.length > 0) {
+                    const teammateIds = teammates.map((r: any) => r.UserID);
+                    const { data: punchLogs } = await supabase
+                        .from('DailyLogs')
+                        .select('UserID')
+                        .in('UserID', teammateIds)
+                        .in('QuestID', ['q1', 'q1_dawn'])
+                        .gte('Timestamp', todayCalendar);
 
-        // 4. Determine bonus properties based on character role
-        const roleInfo = ROLE_CURE_MAP[userData.Role];
-        const isCure = roleInfo?.cureTaskId === questId;
-        const finalQuestTitle = isCure ? `${questTitle} (天命對治)` : questTitle;
-
-        // If reward is capped, this is a curse-breaking-only check-in — zero out all rewards
-        const baseReward = rewardCapped ? 0 : questReward;
-        let expMultiplier = 1;
-
-        const myInventory = typeof userData.Inventory === 'string' ? JSON.parse(userData.Inventory) : (userData.Inventory || []);
-        let teamInventory: string[] = [];
-
-        let d7BuffActive = false;
-        if (userData.TeamName) {
-            const tsRes = await client.query(`SELECT inventory, d7_activated_at FROM "TeamSettings" WHERE "team_name" = $1`, [userData.TeamName]);
-            if (tsRes.rowCount && tsRes.rowCount > 0) {
-                const tsData = tsRes.rows[0];
-                teamInventory = typeof tsData.inventory === 'string' ? JSON.parse(tsData.inventory) : (tsData.inventory || []);
-                if (tsData.d7_activated_at) {
-                    const elapsed = Date.now() - new Date(tsData.d7_activated_at).getTime();
-                    d7BuffActive = elapsed < 48 * 3600 * 1000;
-                }
-            }
-        }
-
-        // a1: 如意金箍棒 — 個人總經驗 ×1.2
-        if (myInventory.includes('a1')) expMultiplier *= 1.2;
-
-        // a5: 金剛杖 — 個人總經驗 ×1.2（不可與 a1 疊加）
-        if (myInventory.includes('a5') && !myInventory.includes('a1')) expMultiplier *= 1.2;
-
-        // a3: 七彩袈裟 — 全隊打拳（q1 / q1_dawn）×1.5
-        if (teamInventory.includes('a3') && (questId === 'q1' || questId === 'q1_dawn')) expMultiplier *= 1.5;
-
-        // a4: 幌金繩 — 參加心成活動（w2）×1.5
-        if (teamInventory.includes('a4') && questId.startsWith('w2')) expMultiplier *= 1.5;
-
-        // d7 渾天至寶珠：全隊梵天庇護期間定課修為 ×2
-        if (d7BuffActive) expMultiplier *= 2;
-
-        let finalQuestReward = Math.ceil(baseReward * expMultiplier);
-
-        // a2: 照妖鏡 — 破曉打拳額外 +150 修為（個人持有，q1_dawn 專用）
-        if (myInventory.includes('a2') && questId === 'q1_dawn') {
-            finalQuestReward += 150;
-        }
-
-        const currentExp = parseInt(String(userData.Exp), 10) || 0;
-        const currentLevel = parseInt(String(userData.Level), 10) || 1;
-        const currentCoins = parseInt(String(userData.Coins), 10) || 0;
-
-
-        const newExp = currentExp + finalQuestReward;
-        const newLevel = calculateLevelFromExp(newExp);
-        const levelDelta = newLevel - currentLevel;
-
-        let gainedCoins = Math.floor(baseReward * 0.1);
-
-        const newCoins = currentCoins + gainedCoins;
-
-        const { bonusDice, goldenDiceGain } = calculateBonusDice(questTitle);
-
-        const diceGain = questDice + bonusDice;
-
-        // Use relative update for EnergyDice to prevent race conditions with concurrent
-        // dice rolls (which also write EnergyDice). An absolute write would silently
-        // overwrite concurrent deductions, causing dice to "reset" to the pre-roll value.
-        let updateQuery = `
-      UPDATE "CharacterStats"
-      SET
-        "Exp" = $1,
-        "Level" = $2,
-        "Coins" = $3,
-        "EnergyDice" = COALESCE("EnergyDice", 0) + $4,
-        "LastCheckIn" = $5
-    `;
-        const updateParams: any[] = [newExp, newLevel, newCoins, diceGain, logicalTodayStr, userId];
-
-        if (goldenDiceGain > 0) {
-            updateQuery += `, "GoldenDice" = COALESCE("GoldenDice", 0) + ${goldenDiceGain}`;
-        }
-
-        // Apply Level Up Base Multipliers
-        const growthRates = ROLE_GROWTH_RATES[userData.Role] || {};
-        for (const [stat, rate] of Object.entries(growthRates)) {
-            if (rate && rate > 0) {
-                // Determine the total gain this level up cycle gives
-                const totalGain = rate * levelDelta;
-                if (totalGain > 0) {
-                    updateQuery += `, "${stat}" = "${stat}" + ${totalGain}`;
-                }
-            }
-        }
-
-        // Apply Daily Fix Cure Bonus (+2) — skipped when reward is capped
-        if (isCure && roleInfo && !rewardCapped) {
-            const statKey = roleInfo.bonusStat;
-            updateQuery += `, "${statKey}" = "${statKey}" + 2`;
-        }
-
-        updateQuery += ` WHERE "UserID" = $6 RETURNING *`;
-
-        const updatedStatsRes = await client.query(updateQuery, updateParams);
-
-        // 6. Insert DailyLog
-        await client.query(
-            `INSERT INTO "DailyLogs" ("Timestamp", "UserID", "QuestID", "QuestTitle", "RewardPoints")
-       VALUES ($1, $2, $3, $4, $5)`,
-            [new Date().toISOString(), userId, questId, finalQuestTitle, finalQuestReward]
-        );
-
-        // Commit transaction
-        await client.query('COMMIT');
-
-        // Background: check achievements + retroactive team checks — do NOT await, return immediately
-        (async () => {
-            try {
-                await checkAndUnlockAchievements(userId, questId);
-            } catch (e) {}
-
-            const retroClient = await connectDb();
-            try {
-                const todayStr = getLogicalDateStr(new Date().toISOString());
-
-                if (questId === 'q1' || questId === 'q1_dawn') {
-                    const punchMatesRes = await retroClient.query(`
-                        SELECT DISTINCT dl."UserID"
-                        FROM "DailyLogs" dl
-                        JOIN "CharacterStats" cs ON cs."UserID" = dl."UserID"
-                        JOIN "CharacterStats" self ON self."UserID" = $1
-                        WHERE cs."TeamName" = self."TeamName"
-                          AND dl."UserID" != $1
-                          AND (dl."QuestID" = 'q1' OR dl."QuestID" = 'q1_dawn')
-                          AND dl."Timestamp"::date = $2::date
-                    `, [userId, todayStr]);
-                    for (const row of punchMatesRes.rows) {
-                        checkAndUnlockAchievements(row.UserID, questId).catch(() => {});
+                    const punchedIds = [...new Set((punchLogs ?? []).map((r: any) => r.UserID as string))];
+                    for (const id of punchedIds) {
+                        checkAndUnlockAchievements(id, questId).catch(() => {});
                     }
                 }
+            }
 
-                const teamRes = await retroClient.query(`
-                    SELECT cs."UserID"
-                    FROM "CharacterStats" cs
-                    JOIN "CharacterStats" self ON self."UserID" = $1
-                    WHERE cs."TeamName" = self."TeamName" AND cs."TeamName" IS NOT NULL
-                `, [userId]);
-                const allTeamIds: string[] = teamRes.rows.map((r: { UserID: string }) => r.UserID);
-                if (allTeamIds.length > 1) {
-                    const activeRes = await retroClient.query(`
-                        SELECT DISTINCT "UserID" FROM "DailyLogs"
-                        WHERE "UserID" = ANY($1::text[])
-                          AND "Timestamp"::date = $2::date
-                    `, [allTeamIds, todayStr]);
-                    const activeIds = new Set(activeRes.rows.map((r: { UserID: string }) => r.UserID));
-                    const allActive = allTeamIds.every(id => activeIds.has(id));
-                    if (allActive) {
-                        for (const id of allTeamIds) {
+            if (teamName) {
+                // If all team members checked in today, trigger achievements for everyone
+                const { data: allMembers } = await supabase
+                    .from('CharacterStats')
+                    .select('UserID')
+                    .eq('TeamName', teamName);
+
+                if (allMembers && allMembers.length > 1) {
+                    const allIds = allMembers.map((r: any) => r.UserID as string);
+                    const { data: activeLogs } = await supabase
+                        .from('DailyLogs')
+                        .select('UserID')
+                        .in('UserID', allIds)
+                        .gte('Timestamp', todayCalendar);
+
+                    const activeIds = new Set((activeLogs ?? []).map((r: any) => r.UserID as string));
+                    if (allIds.every((id: string) => activeIds.has(id))) {
+                        for (const id of allIds) {
                             if (id !== userId) checkAndUnlockAchievements(id, questId).catch(() => {});
                         }
                     }
                 }
-            } catch (e) {}
-            finally {
-                await retroClient.end();
             }
-        })();
+        } catch (_) {}
+    })();
 
-        return { success: true, rewardCapped, user: updatedStatsRes.rows[0], newAchievements: [] };
-    } catch (error: any) {
-        await client.query('ROLLBACK');
-        return { success: false, error: error.message };
-    } finally {
-        await client.end();
-    }
+    return {
+        success:         true,
+        rewardCapped:    result.rewardCapped ?? false,
+        user:            result.user,
+        newAchievements: [],
+    };
 }
 
 export async function processUndoTransaction(
@@ -274,121 +119,30 @@ export async function processUndoTransaction(
     questReward: number,
     questDice: number = 0
 ) {
-    const client = await connectDb();
+    const supabase = getServiceClient();
+    const logicalToday = getLogicalDateStr();
 
-    try {
-        await client.query('BEGIN');
+    const { data, error } = await supabase.rpc('process_undo', {
+        p_user_id:       userId,
+        p_quest_id:      questId,
+        p_quest_reward:  questReward,
+        p_quest_dice:    questDice,
+        p_logical_today: logicalToday,
+    });
 
-        // 1. Lock user row
-        const statsRes = await client.query(
-            `SELECT * FROM "CharacterStats" WHERE "UserID" = $1 FOR UPDATE`,
-            [userId]
-        );
-        if (statsRes.rowCount === 0) {
-            throw new Error(`查無此用戶: ${userId}`);
-        }
-        const userData = statsRes.rows[0];
-        const logicalTodayStr = getLogicalDateStr();
-
-        const logicalDateExpr = `CASE
-            WHEN EXTRACT(HOUR FROM "Timestamp" AT TIME ZONE 'Asia/Taipei') >= 12
-            THEN (date("Timestamp" AT TIME ZONE 'Asia/Taipei'))::text
-            ELSE (date("Timestamp" AT TIME ZONE 'Asia/Taipei') - INTERVAL '1 day')::text
-          END`;
-
-        // 2. Find the most recent DailyLog for this quest today (handle q1/q1_dawn)
-        const questVariants = (questId === 'q1' || questId === 'q1_dawn')
-            ? ['q1', 'q1_dawn']
-            : [questId];
-        const placeholders = questVariants.map((_, i) => `$${i + 2}`).join(', ');
-
-        const logRes = await client.query(
-            `SELECT * FROM "DailyLogs"
-             WHERE "UserID" = $1
-               AND "QuestID" IN (${placeholders})
-               AND ${logicalDateExpr} = $${questVariants.length + 2}
-             ORDER BY "Timestamp" DESC
-             LIMIT 1`,
-            [userId, ...questVariants, logicalTodayStr]
-        );
-
-        if (logRes.rowCount === 0) {
-            throw new Error("查無今日此定課紀錄。");
-        }
-
-        const targetLog = logRes.rows[0];
-        const actualReward = parseInt(String(targetLog.RewardPoints), 10) || 0;
-        const wasCapped = actualReward === 0;
-
-        // 3. Calculate reversed stats
-        const currentExp = parseInt(String(userData.Exp), 10) || 0;
-        const currentLevel = parseInt(String(userData.Level), 10) || 1;
-
-        const newExp = Math.max(0, currentExp - actualReward);
-        const newLevel = calculateLevelFromExp(newExp);
-        const levelsLost = currentLevel - newLevel;
-
-        // Coins: reverse base reward × 0.1 (matches check-in line 125 which uses baseReward)
-        const coinsToDeduct = wasCapped ? 0 : Math.floor(questReward * 0.1);
-
-        // Dice: reverse questDice + bonusDice from title keywords
-        const { bonusDice, goldenDiceGain } = calculateBonusDice(targetLog.QuestTitle || '');
-        const totalDiceToDeduct = questDice + bonusDice;
-
-        // 4. Build UPDATE query
-        let updateQuery = `
-            UPDATE "CharacterStats"
-            SET
-                "Exp" = $1,
-                "Level" = $2,
-                "Coins" = GREATEST(0, "Coins" - $3),
-                "EnergyDice" = GREATEST(0, COALESCE("EnergyDice", 0) - $4)
-        `;
-        const updateParams: any[] = [newExp, newLevel, coinsToDeduct, totalDiceToDeduct, userId];
-
-        // Reverse golden dice
-        if (goldenDiceGain > 0) {
-            updateQuery += `, "GoldenDice" = GREATEST(0, COALESCE("GoldenDice", 0) - ${goldenDiceGain})`;
-        }
-
-        // Reverse level-up stat bonuses
-        if (levelsLost > 0) {
-            const growthRates = ROLE_GROWTH_RATES[userData.Role] || {};
-            for (const [stat, rate] of Object.entries(growthRates)) {
-                if (rate && rate > 0) {
-                    const totalLoss = rate * levelsLost;
-                    if (totalLoss > 0) {
-                        updateQuery += `, "${stat}" = GREATEST(0, "${stat}" - ${totalLoss})`;
-                    }
-                }
-            }
-        }
-
-        // Reverse cure bonus (only if reward was not capped)
-        const roleInfo = ROLE_CURE_MAP[userData.Role];
-        const actualQuestId = targetLog.QuestID;
-        if (roleInfo?.cureTaskId === actualQuestId && !wasCapped) {
-            const statKey = roleInfo.bonusStat;
-            updateQuery += `, "${statKey}" = GREATEST(10, "${statKey}" - 2)`;
-        }
-
-        updateQuery += ` WHERE "UserID" = $5 RETURNING *`;
-
-        const updatedStatsRes = await client.query(updateQuery, updateParams);
-
-        // 5. Delete the DailyLog
-        await client.query(
-            `DELETE FROM "DailyLogs" WHERE "id" = $1`,
-            [targetLog.id]
-        );
-
-        await client.query('COMMIT');
-
-        return { success: true, user: updatedStatsRes.rows[0] };
-    } catch (error: any) {
-        await client.query('ROLLBACK');
+    if (error) {
         return { success: false, error: error.message };
-    } finally {
-        await client.end();
     }
+
+    const result = data as {
+        success: boolean;
+        error?:  string;
+        user?:   any;
+    };
+
+    if (!result.success) {
+        return { success: false, error: result.error };
+    }
+
+    return { success: true, user: result.user };
 }
