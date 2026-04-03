@@ -34,6 +34,7 @@ const DROP_RATES_BY_TYPE: Record<string, number[]> = {
  * Resolves a combat exchange between a player and a monster/entity
  */
 export async function resolveCombat(params: CombatParams) {
+  try {
     const { attackerId, monsterData, flankingMultiplier, remainingAP, playerDEFOverride, statBuffMultiplier = 1.0, hasDeathShield = false, sealMonsterPassive = false, d1StatBuff = 1.0, monsterLevelDebuff = 0, noCritIncoming = false } = params;
 
     // 1. Fetch Attacker Data
@@ -43,7 +44,7 @@ export async function resolveCombat(params: CombatParams) {
         .eq('UserID', attackerId)
         .single();
 
-    if (fetchErr || !attacker) throw new Error("無法獲取玩家資料");
+    if (fetchErr || !attacker) return { success: false, error: "無法獲取玩家資料" };
 
     // 2. Base Calculation
     const roleConfig = ROLE_CURE_MAP[attacker.Role] || ROLE_CURE_MAP['孫悟空'];
@@ -209,7 +210,7 @@ export async function resolveCombat(params: CombatParams) {
             p_new_hp: newHP
         });
 
-        if (rewardErr) throw new Error("獎勵領取失敗：" + rewardErr.message);
+        if (rewardErr) return { success: false, error: "獎勵領取失敗：" + rewardErr.message };
 
         // 全服骰子事件：廣播通知 + 全體玩家 +1 骰子
         if (isServerWideDrop) {
@@ -237,7 +238,7 @@ export async function resolveCombat(params: CombatParams) {
             .from('CharacterStats')
             .update({ HP: newHP })
             .eq('UserID', attackerId);
-        if (updateErr) throw new Error("戰鬥結算失敗：" + updateErr.message);
+        if (updateErr) return { success: false, error: "戰鬥結算失敗：" + updateErr.message };
     }
 
     // 8. Handle Entity Persistence
@@ -326,4 +327,7 @@ export async function resolveCombat(params: CombatParams) {
             ? `大獲全勝！你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，擊殺心魔。${rewardMsg}`
             : `你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，遭到反擊受到 ${totalMonsterDamage} 點傷害。`
     };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? "戰鬥發生未知錯誤" };
+  }
 }
