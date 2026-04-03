@@ -222,15 +222,19 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
             }
         }
 
-        // --- Pass 1: Spawn monsters per zone at fixed coverage rate ---
+        // --- Pass 1: Collect monsters per zone at fixed coverage rate ---
+        // Cap per zone to prevent over-population on large maps
+        const MAX_PER_ZONE = 150;
         const usedHexes = new Set<string>();
         const zoneMonsterNames: Record<string, string> = {
             pride: '慢心魔', doubt: '疑心魔', anger: '嗔心魔',
             greed: '貪心魔', delusion: '痴心魔', chaos: '亂心魔',
         };
 
+        const monsterRows: { q: number; r: number; name: string; icon: string; data: string }[] = [];
+
         for (const [zoneId, hexes] of Object.entries(zoneHexMap)) {
-            const quota = Math.floor(hexes.length * monsterCoverageRate);
+            const quota = Math.min(Math.floor(hexes.length * monsterCoverageRate), MAX_PER_ZONE);
             const baseName = zoneMonsterNames[zoneId] ?? '野生妖獸';
 
             for (let i = 0; i < quota && i < hexes.length; i++) {
@@ -242,32 +246,55 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
                 const monsterName = isElite ? `精英${baseName}` : baseName;
                 const monsterIcon = isElite ? '👹' : '🐉';
                 const monsterData = isElite ? { level, hp, zone: zoneId, type: 'elite' } : { level, hp, zone: zoneId };
-                await client.query(`
-                    INSERT INTO "MapEntities" (q, r, type, name, icon, data)
-                    VALUES ($1, $2, 'monster', $3, $4, $5)
-                `, [q, r, monsterName, monsterIcon, JSON.stringify(monsterData)]);
+                monsterRows.push({ q, r, name: monsterName, icon: monsterIcon, data: JSON.stringify(monsterData) });
                 usedHexes.add(`${q},${r}`);
             }
         }
 
-        // --- Pass 2: Spawn chests from remaining non-monster hexes ---
+        // Batch INSERT all monsters in one query via unnest
+        if (monsterRows.length > 0) {
+            await client.query(
+                `INSERT INTO "MapEntities" (q, r, type, name, icon, data)
+                 SELECT * FROM unnest($1::int[], $2::int[], $3::text[], $4::text[], $5::text[], $6::jsonb[])`,
+                [
+                    monsterRows.map(m => m.q),
+                    monsterRows.map(m => m.r),
+                    monsterRows.map(_ => 'monster'),
+                    monsterRows.map(m => m.name),
+                    monsterRows.map(m => m.icon),
+                    monsterRows.map(m => m.data),
+                ]
+            );
+        }
+
+        // --- Pass 2: Collect chests from remaining hexes, then batch INSERT ---
         const MAX_CHESTS = worldState === 'good' ? 40 : worldState === 'normal' ? 25 : 10;
         const chestRate = worldState === 'good' ? 0.05 : worldState === 'bad' ? 0.01 : 0.02;
-        let chestCount = 0;
+        const chestRows: { q: number; r: number }[] = [];
         const remainingHexes = Object.values(zoneHexMap)
             .flat()
             .filter(h => !usedHexes.has(`${h.q},${h.r}`))
             .sort(() => Math.random() - 0.5);
 
         for (const { q, r } of remainingHexes) {
-            if (chestCount >= MAX_CHESTS) break;
+            if (chestRows.length >= MAX_CHESTS) break;
             if (Math.random() < chestRate) {
-                await client.query(`
-                    INSERT INTO "MapEntities" (q, r, type, name, icon)
-                    VALUES ($1, $2, 'treasure', '神秘寶箱', '🎁')
-                `, [q, r]);
-                chestCount++;
+                chestRows.push({ q, r });
             }
+        }
+
+        if (chestRows.length > 0) {
+            await client.query(
+                `INSERT INTO "MapEntities" (q, r, type, name, icon)
+                 SELECT * FROM unnest($1::int[], $2::int[], $3::text[], $4::text[], $5::text[])`,
+                [
+                    chestRows.map(c => c.q),
+                    chestRows.map(c => c.r),
+                    chestRows.map(_ => 'treasure'),
+                    chestRows.map(_ => '神秘寶箱'),
+                    chestRows.map(_ => '🎁'),
+                ]
+            );
         }
 
         await client.query('COMMIT');
