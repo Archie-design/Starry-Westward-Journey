@@ -388,7 +388,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     applyTrapDamage(String(trapOnHex.id), String(monsterOnHex.id))
                         .then(res => {
                             if (res.success) {
-                                onShowMessage(res.message, 'success');
+                                onShowMessage(res.message ?? '', 'success');
                                 if (res.killed) {
                                     onUpdateUserData({ removeEntityId: monsterOnHex.id } as any);
                                 }
@@ -1446,7 +1446,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         setD2LevelDebuff(0);
                         setNoCritIncoming(false);
 
-                        if (res.success) {
+                        if (!res.success) {
+                            onShowMessage(res.error ?? '戰鬥發生錯誤', 'error');
+                            setIsCombatModalOpen(false);
+                        } else {
                             // i3 錦鑭袈裟：若觸發護身，更新 shield 狀態
                             if (res.deathShieldTriggered) {
                                 setHasDeathShield(false);
@@ -1478,7 +1481,14 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             }
                         }
                     } catch (e: any) {
-                        onShowMessage(e.message, 'error');
+                        // Defensive: clear buffs and close modal even on unexpected exception
+                        setCombatStatBuff(false);
+                        setSealMonsterPassive(false);
+                        setD1CombatBuff(1.0);
+                        setD2LevelDebuff(0);
+                        setNoCritIncoming(false);
+                        setIsCombatModalOpen(false);
+                        onShowMessage(e?.message ?? '戰鬥發生未知錯誤', 'error');
                     } finally {
                         setIsProcessingItem(false);
                     }
@@ -1486,11 +1496,22 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 onCapture={async () => {
                     if (isProcessingItem || !combatTarget) return;
                     setIsProcessingItem(true);
+                    // Clear combat buffs regardless of outcome (same as onAttack)
+                    setCombatStatBuff(false);
+                    setSealMonsterPassive(false);
+                    setD1CombatBuff(1.0);
+                    setD2LevelDebuff(0);
+                    setNoCritIncoming(false);
                     try {
-                        await useGameItem(userData.UserID, 'i1');
+                        const captureRes = await useGameItem(userData.UserID, 'i1');
+                        if (!captureRes.success) {
+                            onShowMessage(captureRes.error ?? '收妖失敗', 'error');
+                            setIsCombatModalOpen(false);
+                            return;
+                        }
                         const monsterLevel = combatTarget.data?.level || 1;
                         const coinReward = Math.floor(Math.max(monsterLevel, Math.floor(userData.Level * 0.75)) * 20);
-                        onShowMessage(`收妖葫蘆發動！${combatTarget.name || '心魔'} 被收服！獲得 ${coinReward} 金幣。`, 'success');
+                        onShowMessage(captureRes.message ?? `收妖葫蘆發動！${combatTarget.name || '心魔'} 被收服！獲得 ${coinReward} 金幣。`, 'success');
                         setIsCombatModalOpen(false);
                         if (onUpdateSteps) onUpdateSteps(0);
                         const newInv = (userData.GameInventory || []).map((i: any) => i.id === 'i1' ? { ...i, count: i.count - 1 } : i).filter((i: any) => i.count > 0);
@@ -1502,7 +1523,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         if (combatTarget.key) setDismissedCombatKeys(prev => new Set(prev).add(getEntityKey(combatTarget)));
                         if (onEntityTrigger) onEntityTrigger(combatTarget);
                     } catch (e: any) {
-                        onShowMessage(e.message, 'error');
+                        setIsCombatModalOpen(false);
+                        onShowMessage(e?.message ?? '收妖發生未知錯誤', 'error');
                     } finally {
                         setIsProcessingItem(false);
                     }
@@ -1539,9 +1561,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     disabled={somersaultUsed || isRolling || isProcessingItem}
                                     onClick={async () => {
                                         if (onUpdateMultiplier) onUpdateMultiplier(2);
-                                        await recordSomersaultUsed(userData.UserID);
-                                        onShowMessage('筋斗雲！本回合擲骰步數翻倍！', 'success');
-                                        setIsSkillPanelOpen(false);
+                                        try {
+                                            await recordSomersaultUsed(userData.UserID);
+                                            onShowMessage('筋斗雲！本回合擲骰步數翻倍！', 'success');
+                                            setIsSkillPanelOpen(false);
+                                        } catch (_) {
+                                            // Rollback multiplier if DB record fails
+                                            if (onUpdateMultiplier) onUpdateMultiplier(1);
+                                            onShowMessage('筋斗雲發動失敗，請重試。', 'error');
+                                        }
                                     }}
                                     className="w-full py-2 rounded-xl text-xs font-black bg-yellow-600 hover:bg-yellow-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 >{somersaultUsed ? '今日已使用' : '發動'}</button>
@@ -1561,7 +1589,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                         setIsProcessingItem(true);
                                         try {
                                             const res = await useNineToothRake(userData.UserID, adjacentChest?.id ?? null);
-                                            onShowMessage(res.message, 'success');
+                                            onShowMessage(res.message ?? '', 'success');
                                             if (onUpdateSteps) onUpdateSteps(stepsRemaining - 1);
                                             if (res.gotDice) onUpdateUserData({ EnergyDice: (userData.EnergyDice ?? 0) + 1 });
                                             if (res.coinAmount) onUpdateUserData({ Coins: (userData.Coins ?? 0) + res.coinAmount });
@@ -1645,7 +1673,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                                 monstersInLine.map(e => String(e.id)),
                                                 teammatesInLine.map(m => m.UserID),
                                             );
-                                            onShowMessage(res.message, 'success');
+                                            onShowMessage(res.message ?? '', 'success');
                                             if (onUpdateSteps) onUpdateSteps(stepsRemaining - 2);
                                         } catch (e: any) { onShowMessage(e.message, 'error'); }
                                         finally { setIsProcessingItem(false); setIsSkillPanelOpen(false); }
@@ -1669,7 +1697,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     try {
                         const res = await useGameItem(userData.UserID, itemId);
                         if (res.success) {
-                            onShowMessage(res.message, 'success');
+                            onShowMessage(res.message ?? '道具使用成功', 'success');
                             // Local optimistic update for UI snappiness
                             const newInv = (userData.GameInventory || []).map(i => i.id === itemId ? { ...i, count: i.count - 1 } : i).filter(i => i.count > 0);
                             onUpdateUserData({ GameInventory: newInv });
@@ -1732,7 +1760,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             setIsInventoryOpen(false);
 
                         } else {
-                            onShowMessage(res.message, 'error');
+                            onShowMessage(res.message ?? res.error ?? '道具使用失敗', 'error');
                         }
                     } catch (err: any) {
                         onShowMessage(err.message, 'error');
@@ -1753,13 +1781,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     try {
                         const res = await buyGameItem(userData.UserID, itemId, price);
                         if (res.success) {
-                            onShowMessage(res.message, 'success');
+                            onShowMessage(res.message ?? '', 'success');
                             const currentInv = userData.GameInventory || [];
                             const exist = currentInv.find(i => i.id === itemId);
                             const newInv = exist ? currentInv.map(i => i.id === itemId ? { ...i, count: i.count + 1 } : i) : [...currentInv, { id: itemId, count: 1 }];
                             onUpdateUserData({ GameGold: (userData.GameGold || 0) - price, GameInventory: newInv });
                         } else {
-                            onShowMessage(res.message, 'error');
+                            onShowMessage(res.message ?? res.error ?? '購買失敗', 'error');
                         }
                     } catch (err: any) {
                         onShowMessage(err.message, 'error');
@@ -1793,7 +1821,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     setIsDonating(true);
                                     try {
                                         const res = await donateDice(userData.UserID, donationTarget.data.userId, donateAmount);
-                                        onShowMessage(res.message, 'success');
+                                        onShowMessage(res.message ?? '', 'success');
                                         onUpdateUserData({ EnergyDice: (userData.EnergyDice || 0) - donateAmount });
                                         setDonationTarget(null);
                                     } catch (err: any) {

@@ -1,11 +1,15 @@
 'use server';
 
 import { GoogleGenAI } from '@google/genai';
-import { connectDb } from '@/lib/db';
+import { createClient } from '@supabase/supabase-js';
 import { getWeeklyMonday } from '@/lib/utils/time';
 import type { WeeklyReview, CaptainBriefing } from '@/types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API 重試機制 (Exponential Backoff + Jitter) 以處理 429 TooManyRequests
@@ -42,21 +46,22 @@ export async function generateWeeklyReview(
         return { success: false, error: 'GEMINI_API_KEY 未設定' };
     }
 
-    const client = await connectDb();
     try {
         // 1. Fetch user stats
-        const statsRes = await client.query(`SELECT * FROM "CharacterStats" WHERE "UserID" = $1`, [userId]);
-        if (statsRes.rowCount === 0) throw new Error('無效的使用者');
-        const user = statsRes.rows[0];
+        const { data: user, error: userErr } = await supabase
+            .from('CharacterStats')
+            .select('*')
+            .eq('UserID', userId)
+            .single();
+        if (userErr || !user) return { success: false, error: '無效的使用者' };
 
         // 2. Compute week boundaries (using Taiwan-aware Monday)
         const now = new Date();
-        // Convert current time to Taiwan time to get the correct Monday
         const twFormatter = new Intl.DateTimeFormat('en-CA', {
             timeZone: 'Asia/Taipei',
             year: 'numeric', month: '2-digit', day: '2-digit',
         });
-        const twDateStr = twFormatter.format(now); // YYYY-MM-DD in TW time
+        const twDateStr = twFormatter.format(now);
         const twDate = new Date(twDateStr + 'T00:00:00');
         const thisWeekMonday = getWeeklyMonday(twDate);
         const prevWeekMonday = new Date(thisWeekMonday);
@@ -67,41 +72,45 @@ export async function generateWeeklyReview(
         const weekLabel = thisWeekMonday.toISOString().slice(0, 10);
 
         // 3. Check DB cache first — avoid calling Gemini if review already exists this week
-        const cachedRes = await client.query(
-            `SELECT content FROM "WeeklyReviews" WHERE user_id = $1 AND week_label = $2`,
-            [userId, weekLabel]
-        );
-        if ((cachedRes.rowCount ?? 0) > 0) {
-            const cached = cachedRes.rows[0].content as WeeklyReview;
+        const { data: cached } = await supabase
+            .from('WeeklyReviews')
+            .select('content')
+            .eq('user_id', userId)
+            .eq('week_label', weekLabel)
+            .maybeSingle();
+        if (cached) {
+            const cachedReview = cached.content as WeeklyReview;
             // Skip stale 0% cache — regenerate if user now has check-ins
-            if ((cached.weeklyRate ?? 0) > 0) {
-                return { success: true, review: cached, weekLabel };
+            if ((cachedReview.weeklyRate ?? 0) > 0) {
+                return { success: true, review: cachedReview, weekLabel };
             }
         }
 
-        // 4. Fetch this week's daily quest logs (q1~q7 only)  [fresh — no cache]
-        const thisLogsRes = await client.query(`
-            SELECT "QuestTitle", "Timestamp" FROM "DailyLogs"
-            WHERE "UserID" = $1
-              AND "Timestamp" >= $2 AND "Timestamp" < $3
-              AND "QuestID" LIKE 'q%'
-            ORDER BY "Timestamp" ASC
-        `, [userId, thisWeekMonday.toISOString(), nextWeekMonday.toISOString()]);
+        // 4. Fetch this week's daily quest logs (q1~q7 only)
+        const { data: thisLogs } = await supabase
+            .from('DailyLogs')
+            .select('"QuestTitle","Timestamp"')
+            .eq('UserID', userId)
+            .gte('Timestamp', thisWeekMonday.toISOString())
+            .lt('Timestamp', nextWeekMonday.toISOString())
+            .like('QuestID', 'q%')
+            .order('Timestamp');
 
         // 5. Fetch previous week's daily quest logs
-        const prevLogsRes = await client.query(`
-            SELECT "QuestTitle", "Timestamp" FROM "DailyLogs"
-            WHERE "UserID" = $1
-              AND "Timestamp" >= $2 AND "Timestamp" < $3
-              AND "QuestID" LIKE 'q%'
-        `, [userId, prevWeekMonday.toISOString(), thisWeekMonday.toISOString()]);
+        const { data: prevLogs } = await supabase
+            .from('DailyLogs')
+            .select('"QuestTitle","Timestamp"')
+            .eq('UserID', userId)
+            .gte('Timestamp', prevWeekMonday.toISOString())
+            .lt('Timestamp', thisWeekMonday.toISOString())
+            .like('QuestID', 'q%');
 
-        const thisLogs = thisLogsRes.rows;
-        const prevLogs = prevLogsRes.rows;
+        const thisLogsArr = thisLogs ?? [];
+        const prevLogsArr = prevLogs ?? [];
 
         // 6. Derive trend and weakest stat
-        const thisRate = thisLogs.length / 21;
-        const prevRate = prevLogs.length / 21;
+        const thisRate = thisLogsArr.length / 21;
+        const prevRate = prevLogsArr.length / 21;
         const delta = thisRate - prevRate;
         const trend: 'up' | 'down' | 'stable' =
             delta > 0.05 ? 'up' : delta < -0.05 ? 'down' : 'stable';
@@ -126,12 +135,12 @@ export async function generateWeeklyReview(
 最弱屬性：${weakestStatName}
 
 【本週定課紀錄 (${thisWeekMondayStr} 起)】
-完成次數：${thisLogs.length} / 21（完成率 ${Math.round(thisRate * 100)}%）
+完成次數：${thisLogsArr.length} / 21（完成率 ${Math.round(thisRate * 100)}%）
 詳細：
-${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })}：${l.QuestTitle}`).join('\n') || '（本週尚無打卡紀錄）'}
+${thisLogsArr.map((l: any) => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })}：${l.QuestTitle}`).join('\n') || '（本週尚無打卡紀錄）'}
 
 【上週定課紀錄】
-完成次數：${prevLogs.length} / 21（完成率 ${Math.round(prevRate * 100)}%）
+完成次數：${prevLogsArr.length} / 21（完成率 ${Math.round(prevRate * 100)}%）
 
 【週間趨勢】：${trendLabel}
 
@@ -163,12 +172,13 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
         if (!['up', 'down', 'stable'].includes(review.trend)) review.trend = trend;
 
         // 7. Upsert to WeeklyReviews (skip caching empty weeks so future visits can regenerate)
-        if (thisLogs.length > 0) {
-            await client.query(`
-                INSERT INTO "WeeklyReviews" (user_id, week_label, content)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (user_id, week_label) DO UPDATE SET content = EXCLUDED.content
-            `, [userId, weekLabel, JSON.stringify(review)]);
+        if (thisLogsArr.length > 0) {
+            await supabase
+                .from('WeeklyReviews')
+                .upsert(
+                    { user_id: userId, week_label: weekLabel, content: review },
+                    { onConflict: 'user_id,week_label' }
+                );
         }
 
         return { success: true, review, weekLabel };
@@ -179,8 +189,6 @@ ${thisLogs.map(l => `- ${new Date(l.Timestamp).toLocaleDateString('zh-TW', { mon
         const normalized = (msg === 'AI_SPENDING_CAP' || msg.includes('spending cap') || msg.includes('RESOURCE_EXHAUSTED'))
             ? 'AI_SPENDING_CAP' : msg;
         return { success: false, error: normalized };
-    } finally {
-        await client.end();
     }
 }
 
@@ -194,15 +202,14 @@ export async function generateCaptainBriefing(
         return { success: false, error: 'GEMINI_API_KEY 未設定' };
     }
 
-    const client = await connectDb();
     try {
         // 1. Verify captain + get team name
-        const captainRes = await client.query(
-            `SELECT "TeamName", "IsCaptain", "Name" FROM "CharacterStats" WHERE "UserID" = $1`,
-            [captainUserId]
-        );
-        if (captainRes.rowCount === 0) throw new Error('無效的使用者');
-        const captain = captainRes.rows[0];
+        const { data: captain, error: captainErr } = await supabase
+            .from('CharacterStats')
+            .select('"TeamName","IsCaptain","Name"')
+            .eq('UserID', captainUserId)
+            .single();
+        if (captainErr || !captain) return { success: false, error: '無效的使用者' };
         if (!captain.IsCaptain) return { success: false, error: '非隊長無法使用此功能' };
         if (!captain.TeamName) return { success: false, error: '尚未分配小隊' };
 
@@ -217,36 +224,43 @@ export async function generateCaptainBriefing(
         const weekLabel = thisWeekMonday.toISOString().slice(0, 10);
 
         // 3. Check DB cache — return early if this captain already has a briefing this week
-        const cachedRes = await client.query(
-            `SELECT content FROM "CaptainBriefings" WHERE user_id = $1 AND week_label = $2`,
-            [captainUserId, weekLabel]
-        );
-        if ((cachedRes.rowCount ?? 0) > 0) {
-            return { success: true, briefing: cachedRes.rows[0].content as CaptainBriefing };
+        const { data: cachedBriefing } = await supabase
+            .from('CaptainBriefings')
+            .select('content')
+            .eq('user_id', captainUserId)
+            .eq('week_label', weekLabel)
+            .maybeSingle();
+        if (cachedBriefing) {
+            return { success: true, briefing: cachedBriefing.content as CaptainBriefing };
         }
 
         // 4. Fetch all team members
-        const membersRes = await client.query(
-            `SELECT * FROM "CharacterStats" WHERE "TeamName" = $1 ORDER BY "Level" DESC`,
-            [captain.TeamName]
-        );
-        const members = membersRes.rows;
-        if (members.length === 0) return { success: false, error: '小隊目前無成員' };
+        const { data: members, error: membersErr } = await supabase
+            .from('CharacterStats')
+            .select('*')
+            .eq('TeamName', captain.TeamName)
+            .order('Level', { ascending: false });
+        if (membersErr || !members || members.length === 0) {
+            return { success: false, error: '小隊目前無成員' };
+        }
 
         // 5. Batch-fetch last 7 days logs for all members (avoid N+1)
         const past7Date = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
         const memberIds = members.map((m: any) => m.UserID);
-        const logsRes = await client.query(`
-            SELECT "UserID", "QuestTitle", "Timestamp" FROM "DailyLogs"
-            WHERE "UserID" = ANY($1::text[])
-              AND "Timestamp" >= $2
-              AND "QuestID" LIKE 'q%'
-            ORDER BY "UserID", "Timestamp" ASC
-        `, [memberIds, past7Date]);
+        const { data: logsData } = await supabase
+            .from('DailyLogs')
+            .select('"UserID","QuestTitle","Timestamp"')
+            .in('UserID', memberIds)
+            .gte('Timestamp', past7Date)
+            .like('QuestID', 'q%')
+            .order('UserID')
+            .order('Timestamp');
+
+        const logs = logsData ?? [];
 
         // 6. Group logs by UserID
         const logsByUser = new Map<string, any[]>();
-        for (const log of logsRes.rows) {
+        for (const log of logs) {
             if (!logsByUser.has(log.UserID)) logsByUser.set(log.UserID, []);
             logsByUser.get(log.UserID)!.push(log);
         }
@@ -306,11 +320,12 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
         if (!['high', 'medium', 'low'].includes(briefing.teamMorale)) briefing.teamMorale = teamMorale;
 
         // 8. Upsert to CaptainBriefings
-        await client.query(`
-            INSERT INTO "CaptainBriefings" (user_id, week_label, content)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (user_id, week_label) DO UPDATE SET content = EXCLUDED.content
-        `, [captainUserId, weekLabel, JSON.stringify(briefing)]);
+        await supabase
+            .from('CaptainBriefings')
+            .upsert(
+                { user_id: captainUserId, week_label: weekLabel, content: briefing },
+                { onConflict: 'user_id,week_label' }
+            );
 
         return { success: true, briefing };
 
@@ -320,7 +335,5 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
         const normalized = (msg === 'AI_SPENDING_CAP' || msg.includes('spending cap') || msg.includes('RESOURCE_EXHAUSTED'))
             ? 'AI_SPENDING_CAP' : msg;
         return { success: false, error: normalized };
-    } finally {
-        await client.end();
     }
 }

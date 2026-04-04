@@ -1641,7 +1641,20 @@ dbEntities={mapEntities}
             }
             setUserData(prev => prev ? { ...prev, ...data } : null);
           }}
-          onUpdateSteps={setStepsRemaining}
+          onUpdateSteps={(steps) => {
+            setStepsRemaining(steps);
+            if (steps === 0 && userData) {
+              const saved = localStorage.getItem(`starry_map_state_${userData.UserID}`);
+              if (saved) {
+                try {
+                  const parsed = JSON.parse(saved);
+                  localStorage.setItem(`starry_map_state_${userData.UserID}`, JSON.stringify({
+                    ...parsed, stepsRemaining: 0
+                  }));
+                } catch (_) {}
+              }
+            }
+          }}
           isIrritable={isIrritable}
           onExchangeGoldenDice={() => setShowExchangeConfirm(true)}
           onSpringHeal={handleSpringHeal}
