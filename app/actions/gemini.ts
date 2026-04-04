@@ -223,18 +223,7 @@ export async function generateCaptainBriefing(
         const thisWeekMonday = getWeeklyMonday(twDate);
         const weekLabel = thisWeekMonday.toISOString().slice(0, 10);
 
-        // 3. Check DB cache — return early if this captain already has a briefing this week
-        const { data: cachedBriefing } = await supabase
-            .from('CaptainBriefings')
-            .select('content')
-            .eq('user_id', captainUserId)
-            .eq('week_label', weekLabel)
-            .maybeSingle();
-        if (cachedBriefing) {
-            return { success: true, briefing: cachedBriefing.content as CaptainBriefing };
-        }
-
-        // 4. Fetch all team members
+        // 3. Fetch all team members (no cache — regenerated on every request per design spec)
         const { data: members, error: membersErr } = await supabase
             .from('CharacterStats')
             .select('*')
@@ -318,14 +307,6 @@ ${memberStats.map((m: any) => `- ${m.name}（${m.role}，Lv${m.level}）：完�
         if (!textResponse) throw new Error('AI 未回應內容');
         const briefing: CaptainBriefing = JSON.parse(textResponse);
         if (!['high', 'medium', 'low'].includes(briefing.teamMorale)) briefing.teamMorale = teamMorale;
-
-        // 8. Upsert to CaptainBriefings
-        await supabase
-            .from('CaptainBriefings')
-            .upsert(
-                { user_id: captainUserId, week_label: weekLabel, content: briefing },
-                { onConflict: 'user_id,week_label' }
-            );
 
         return { success: true, briefing };
 

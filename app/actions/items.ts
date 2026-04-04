@@ -96,14 +96,15 @@ export async function useGameItem(userId: string, itemId: string) {
         let itemEffect: Record<string, any> | null = null;
 
         if (itemId === 'i8') {
-            // 觀音甘露水：回復 30% MaxHP，不超過上限
+            // 觀音甘露水：回復 30% MaxHP，不超過上限；同時解除移動減益（深淵泥淖等）
             const roleConfig = ROLE_CURE_MAP[user.Role] || ROLE_CURE_MAP['孫悟空'];
             const maxHP = user.MaxHP ?? (roleConfig.baseHP + (user.Physique ?? 0) * roleConfig.hpScale);
             const currentHP = user.HP ?? maxHP;
             const restored = Math.floor(maxHP * 0.3);
             const newHP = Math.min(maxHP, currentHP + restored);
             patch.HP = newHP;
-            resultMsg = `使用了 ${targetItem.name}！恢復了 ${restored} HP（${currentHP} → ${newHP}）。`;
+            itemEffect = { type: 'clear_movement_debuff' };
+            resultMsg = `使用了 ${targetItem.name}！恢復了 ${restored} HP（${currentHP} → ${newHP}），並解除移動減益。`;
 
         } else if (itemId === 'i10') {
             // 人參果：永久提升最低六維屬性 +1
@@ -196,5 +197,29 @@ export async function useGameItem(userId: string, itemId: string) {
         return { success: true, message: resultMsg, itemEffect };
     } catch (err: any) {
         return { success: false, error: err?.message ?? "使用道具發生未知錯誤" };
+    }
+}
+
+/**
+ * Push a monster 3 hexes in the fan direction (i6 芭蕉扇)
+ */
+export async function pushMonsterByFan(userId: string, entityId: string, newQ: number, newR: number) {
+    try {
+        if (!userId || !entityId) return { success: false, error: '無效的請求' };
+        const { data: entity, error: fetchErr } = await supabase
+            .from('MapEntities')
+            .select('id, type')
+            .eq('id', entityId)
+            .eq('type', 'monster')
+            .single();
+        if (fetchErr || !entity) return { success: false, error: '找不到目標怪物' };
+        const { error: updateErr } = await supabase
+            .from('MapEntities')
+            .update({ q: newQ, r: newR })
+            .eq('id', entityId);
+        if (updateErr) return { success: false, error: '推移失敗：' + updateErr.message };
+        return { success: true };
+    } catch (err: any) {
+        return { success: false, error: err?.message ?? '推移發生未知錯誤' };
     }
 }

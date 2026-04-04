@@ -45,12 +45,14 @@ export async function processCheckInTransaction(
         return { success: false, error: result.error };
     }
 
-    // Background: achievement checks + retroactive team checks (fire and forget)
-    (async () => {
-        try {
-            await checkAndUnlockAchievements(userId, questId);
-        } catch (_) {}
+    // Await achievement check for the current user so notification can fire immediately
+    let newAchievements: string[] = [];
+    try {
+        newAchievements = await checkAndUnlockAchievements(userId, questId);
+    } catch (_) {}
 
+    // Background: retroactive team achievement checks (fire and forget — no notification needed for others)
+    (async () => {
         try {
             const teamName: string | null = result.user?.TeamName ?? null;
             const todayCalendar = new Date().toISOString().split('T')[0];
@@ -109,7 +111,7 @@ export async function processCheckInTransaction(
         success:         true,
         rewardCapped:    result.rewardCapped ?? false,
         user:            result.user,
-        newAchievements: [],
+        newAchievements,
     };
 }
 

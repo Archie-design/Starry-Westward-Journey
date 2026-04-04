@@ -200,14 +200,18 @@ export async function resolveCombat(params: CombatParams) {
             ? (Math.random() < 0.10 ? 1 : 0)  // 精英：10%
             : (Math.random() < 0.02 ? 1 : 0); // 普通：2%
 
-        // Individual Update
+        // Individual + Team Update (atomic via RPC)
+        const teamBonus = attacker.TeamName ? Math.floor(coinReward * 0.2) : 0;
         const { error: rewardErr } = await supabase.rpc('add_combat_rewards', {
             p_user_id: attackerId,
             p_exp: 0,
-            p_coins: coinReward,
+            p_coins: 0,              // Quest Coins not awarded by combat
             p_dice: totalDiceReward,
             p_golden_dice: goldenDiceReward,
-            p_new_hp: newHP
+            p_new_hp: newHP,
+            p_game_gold: coinReward, // Combat currency → CharacterStats.GameGold
+            p_team_name: attacker.TeamName ?? null,
+            p_team_bonus: teamBonus, // 20% team pool bonus (atomically in same RPC)
         });
 
         if (rewardErr) return { success: false, error: "獎勵領取失敗：" + rewardErr.message };
@@ -215,14 +219,6 @@ export async function resolveCombat(params: CombatParams) {
         // 全服骰子事件：廣播通知 + 全體玩家 +1 骰子
         if (isServerWideDrop) {
             try { await supabase.rpc('global_dice_bonus', { p_amount: 1 }); } catch (_) { /* non-critical */ }
-        }
-
-        // Collective Reward (Team Coins)
-        if (attacker.TeamName) {
-            const teamBonus = Math.floor(coinReward * 0.2); // 20% bonus to team pool
-            await supabase.from('TeamSettings')
-                .update({ team_coins: supabase.rpc('increment', { x: teamBonus }) })
-                .eq('team_name', attacker.TeamName);
         }
 
         rewardMsg = ` 獲得 ${coinReward} 金幣`;

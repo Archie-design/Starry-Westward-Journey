@@ -151,9 +151,23 @@ export default function App() {
     if (!userData) return null;
     const info = ROLE_CURE_MAP[userData.Role];
     if (!info) return null;
-    const isCuredToday = logs.some(l => l.QuestID === info.cureTaskId && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
-    return { ...info, isCursed: !isCuredToday };
-  }, [userData, logs, logicalTodayStr]);
+    // d7 梵天庇護：全隊免疫五毒詛咒
+    if (d7BuffActive) return { ...info, isCursed: false };
+    let isCursed: boolean;
+    if (userData.Role === '豬八戒') {
+      // 豬八戒：q6 且 q7 都未完成才觸發詛咒（完成任一即解除）
+      const hasQ6 = logs.some(l => l.QuestID === 'q6' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
+      const hasQ7 = logs.some(l => l.QuestID === 'q7' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
+      isCursed = !hasQ6 && !hasQ7;
+    } else if (userData.Role === '唐三藏') {
+      // 唐三藏：q3 未完成 OR Streak = 0 任一條件即觸發
+      const hasQ3 = logs.some(l => l.QuestID === 'q3' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
+      isCursed = !hasQ3 || (userData.Streak ?? 0) === 0;
+    } else {
+      isCursed = !logs.some(l => l.QuestID === info.cureTaskId && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
+    }
+    return { ...info, isCursed };
+  }, [userData, logs, logicalTodayStr, d7BuffActive]);
 
   const todayCompletedQuestIds = useMemo(() => {
     return logs.filter(l => getLogicalDateStr(l.Timestamp) === logicalTodayStr).map(l => l.QuestID);
@@ -173,6 +187,23 @@ export default function App() {
     if (!userData || userData.Role !== '孫悟空') return false;
     return !logs.some(l => l.QuestID === 'q2' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
   }, [userData, logs, logicalTodayStr, d7BuffActive]);
+
+  // E6 死亡懲罰：GameGold ×3%（最低10）扣除 + 傳送回 (0,0)；d7 梵天庇護期間免除金幣懲罰
+  const handlePlayerDeath = async () => {
+    if (!userData) return;
+    const currentGold = userData.GameGold || 0;
+    if (d7BuffActive) {
+      await supabase.from('CharacterStats').update({ CurrentQ: 0, CurrentR: 0 }).eq('UserID', userData.UserID);
+      setUserData(prev => prev ? { ...prev, CurrentQ: 0, CurrentR: 0 } : null);
+      setModalMessage({ text: '⚰️ 戰敗陣亡！梵天庇護生效，金幣無損失，已傳送回本心草原。', type: 'error' });
+    } else {
+      const penalty = Math.max(10, Math.floor(currentGold * 0.03));
+      const newGold = Math.max(0, currentGold - penalty);
+      await supabase.from('CharacterStats').update({ GameGold: newGold, CurrentQ: 0, CurrentR: 0 }).eq('UserID', userData.UserID);
+      setUserData(prev => prev ? { ...prev, GameGold: newGold, CurrentQ: 0, CurrentR: 0 } : null);
+      setModalMessage({ text: `⚰️ 戰敗陣亡！失去 ${penalty} 金幣（${currentGold} → ${newGold}），已傳送回本心草原。`, type: 'error' });
+    }
+  };
 
   const handleAdminAuth = async (e: { preventDefault: () => void; currentTarget: HTMLFormElement }) => {
     e.preventDefault();
@@ -466,8 +497,15 @@ export default function App() {
       } else if (entity.type === 'chest') {
         // handleChestOpen handles DB deletion internally
         if (!userData) throw new Error('用戶資料未載入');
-        const result = await handleChestOpen(userData.UserID, entity.id, !!entity._mimicImmune);
-        setUserData(prev => prev ? { ...prev, EnergyDice: (prev.EnergyDice || 0) + result.lootDice } : prev);
+        const result = await handleChestOpen(userData.UserID, entity.id, !!entity._mimicImmune, !!entity._forceMimic);
+        setUserData(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            EnergyDice: (prev.EnergyDice || 0) + (result.lootDice ?? 0),
+            GoldenDice: (prev.GoldenDice || 0) + (result.lootGoldenDice ?? 0),
+          };
+        });
         setModalMessage({
           text: result.message,
           type: result.isMimic && !result.lootDice ? 'error' : 'success',
@@ -1666,6 +1704,7 @@ dbEntities={mapEntities}
           onDeepBog={handleDeepBog}
           onMimicStep={handleMimicStep}
           onQuicksandDrift={handleQuicksandDrift}
+          onPlayerDeath={handlePlayerDeath}
           teamMembers={leaderboard.filter(p => p.TeamName && p.TeamName === userData?.TeamName && p.UserID !== userData?.UserID)}
         />
           </div>

@@ -83,6 +83,9 @@ export async function purchaseArtifact(userId: string, artifactId: string, teamN
             if (ownCount >= config.limit) {
                 throw new Error(`已達到此法寶的最高持有上限 (${config.limit})。`);
             }
+            if (config.exclusiveWith && currentInventory.includes(config.exclusiveWith)) {
+                throw new Error(`此法寶與您已擁有的其他裝備互斥，無法同時持有。`);
+            }
 
             // a5 金剛杖：限 60 歲以上
             if (artifactId === 'a5') {

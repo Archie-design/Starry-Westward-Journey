@@ -9,10 +9,11 @@ import { GameInventoryModal } from '@/components/MapEditor/GameInventoryModal';
 import { WorldOverview } from '@/components/Map/WorldOverview';
 import { NPCShopModal } from '@/components/MapEditor/NPCShopModal';
 import { CombatModal } from '@/components/MapEditor/CombatModal';
-import { buyGameItem, useGameItem } from '@/app/actions/items';
+import { buyGameItem, useGameItem, pushMonsterByFan } from '@/app/actions/items';
 import { resolveCombat } from '@/app/actions/combat';
 import { applyTrapDamage } from '@/app/actions/map';
 import { donateDice } from '@/app/actions/team';
+import { blessChestWithGoldenDice } from '@/app/actions/dice';
 import { recordSomersaultUsed, useNineToothRake, dragonSoarDonate, usePrajnaMantra } from '@/app/actions/skills';
 
 // --- Types ---
@@ -49,6 +50,7 @@ interface WorldMapProps {
     onDeepBog?: () => void;
     onMimicStep?: () => void;
     onQuicksandDrift?: (newQ: number, newR: number) => void;
+    onPlayerDeath?: () => void;     // E6 死亡懲罰：HP歸零時通知 page.tsx 處理
     teamMembers?: CharacterStats[];  // 白龍馬龍騰：隊友選擇
 }
 
@@ -141,7 +143,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     isIrritable = false,
     onExchangeGoldenDice,
     onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze, onLavaDoT, onGeyserKnockback,
-    onDeepBog, onMimicStep, onQuicksandDrift,
+    onDeepBog, onMimicStep, onQuicksandDrift, onPlayerDeath,
     teamMembers = [],
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
@@ -179,6 +181,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     const [dragonSoarPending, setDragonSoarPending] = useState(false);         // 白龍馬 龍騰：移動後顯示
     const [isSkillPanelOpen, setIsSkillPanelOpen] = useState(false);           // 技能面板開關
     const [dragonSoarTarget, setDragonSoarTarget] = useState<CharacterStats | null>(null); // 龍騰隊友選擇
+    const [isFanDirectionMode, setIsFanDirectionMode] = useState(false);       // i6 芭蕉扇：等待方向選擇
+    const [pendingChestEntity, setPendingChestEntity] = useState<any>(null);   // I4 黃金骰子加持：等待確認
 
     const [dismissedCombatKeys, _setDismissedCombatKeys] = useState<Set<string>>(() => {
         try {
@@ -212,6 +216,16 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
     // Constants
     const { HEX_SIZE_WORLD, CENTER_SIDE, SUBZONE_SIDE } = DEFAULT_CONFIG;
+
+    // O2: 孫悟空持金箍棒可穿越黑曜石岩（不可停留在黑曜石上）
+    const isHexImpassable = useCallback((terrainId: string | undefined, isDestination = false): boolean => {
+        if (!terrainId) return false;
+        if (terrainId === 'obsidian' && userData.Role === '孫悟空') {
+            // 孫悟空可穿越黑曜石，但不能以黑曜石為終點
+            return isDestination;
+        }
+        return TERRAIN_TYPES[terrainId]?.impassable ?? false;
+    }, [userData.Role]);
     // Make the virtual canvas huge so panning works via CSS transform
     const VIRTUAL_MAP_SIZE = 6000;
 
@@ -361,8 +375,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 );
                 if (exactMatch) {
                     if (exactMatch.type === 'portal') {
-                        if (!todayCompletedQuestIds || todayCompletedQuestIds.length === 0) {
-                            onShowMessage('受五毒業力牽引，歸心陣無法啟動。請先完成今日定課。', 'error');
+                        const todayQCount = (todayCompletedQuestIds ?? []).filter(id => /^q/.test(id)).length;
+                        if (todayQCount < 3) {
+                            onShowMessage('受五毒業力牽引，歸心陣無法啟動。請先完成 3 項定課再啟動。', 'error');
                             return;
                         }
                     }
@@ -372,6 +387,9 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     } else if (exactMatch.type === 'chest' && d6ForceMimic) {
                         onEntityTrigger({ ...exactMatch, _forceMimic: true });
                         setD6ForceMimic(false);
+                    } else if (exactMatch.type === 'chest' && (userData.GoldenDice ?? 0) > 0) {
+                        // I4 黃金骰子加持：詢問玩家是否消耗 1 顆黃金骰換取必得 3 骰 + 跳過 Mimic
+                        setPendingChestEntity(exactMatch);
                     } else {
                         onEntityTrigger(exactMatch);
                     }
@@ -675,7 +693,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         }
                         if (stepDist === 1) {
                             const hexData = fullGrid.find(h => h.q === hex.q && h.r === hex.r);
-                            if (TERRAIN_TYPES[hexData?.terrainId ?? '']?.impassable) {
+                            if (isHexImpassable(hexData?.terrainId, true)) {
                                 onShowMessage('此地形無法通行！', 'error');
                                 return;
                             }
@@ -711,8 +729,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         const targetHexData = fullGrid.find(h => h.q === targetQ && h.r === targetR);
                         if (!targetHexData) return;
 
-                        // Block impassable terrain (世界樹根 / 世界樹盤根 etc.)
-                        if (TERRAIN_TYPES[targetHexData.terrainId ?? '']?.impassable) {
+                        // Block impassable terrain (世界樹根 / 世界樹盤根 etc.；孫悟空可穿越黑曜石但不可停留)
+                        if (isHexImpassable(targetHexData.terrainId, true)) {
                             onShowMessage('此地形無法通行！', 'error');
                             return;
                         }
@@ -749,9 +767,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             for (let i = 1; i < path.length; i++) {
                                 const step = path[i];
 
-                                // Impassable terrain: stop at previous step
+                                // Impassable terrain: stop at previous step (孫悟空可穿越黑曜石，但不能以黑曜石為終點)
                                 const stepHex = fullGrid.find(h => h.q === step.q && h.r === step.r);
-                                if (TERRAIN_TYPES[stepHex?.terrainId ?? '']?.impassable) {
+                                const isLastStep = i === path.length - 1;
+                                if (isHexImpassable(stepHex?.terrainId, isLastStep)) {
                                     const prevStep = path[i - 1];
                                     actualTargetQ = prevStep.q;
                                     actualTargetR = prevStep.r;
@@ -1425,6 +1444,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     if (isProcessingItem || !combatTarget) return;
                     setIsProcessingItem(true);
                     try {
+                        // D1 緊箍咒：孫悟空 DEF -30%，需傳入 playerDEFOverride 讓 server 端實際套用
+                        let irritableDEFOverride: number | undefined;
+                        if (isIrritable) {
+                            const roleConfig = ROLE_CURE_MAP[userData.Role] || ROLE_CURE_MAP['孫悟空'];
+                            const baseDEF = roleConfig.baseDEF + (userData.Physique ?? 0);
+                            irritableDEFOverride = Math.floor(baseDEF * (combatStatBuff ? 1.5 : 1.0) * d1CombatBuff * 0.7);
+                        }
                         const res = await resolveCombat({
                             attackerId: userData.UserID,
                             targetId: combatTarget.id ? String(combatTarget.id) : undefined,
@@ -1437,6 +1463,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             d1StatBuff: d1CombatBuff,
                             monsterLevelDebuff: d2LevelDebuff,
                             noCritIncoming,
+                            playerDEFOverride: irritableDEFOverride,
                         });
 
                         // 戰鬥結束後清除所有戰鬥 buff（無論勝負）
@@ -1478,6 +1505,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             } as any);
                             if (res.isVictory && onEntityTrigger) {
                                 onEntityTrigger(combatTarget);
+                            }
+                            // E6 死亡懲罰：HP 歸零且無死亡護盾，通知 page.tsx 執行懲罰
+                            if (res.newHP === 0 && !res.deathShieldTriggered) {
+                                onPlayerDeath?.();
                             }
                         }
                     } catch (e: any) {
@@ -1635,6 +1666,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                         {teamMembers.map(m => (
                                             <button key={m.UserID}
                                                 onClick={async () => {
+                                                    if (roleTrait?.isCursed) {
+                                                        onShowMessage('傲慢之牆！孤立狀態下無法將 AP 傳送給隊友。', 'error');
+                                                        setDragonSoarPending(false);
+                                                        setIsSkillPanelOpen(false);
+                                                        return;
+                                                    }
                                                     setIsProcessingItem(true);
                                                     try {
                                                         await dragonSoarDonate(userData.UserID, m.UserID, stepsRemaining);
@@ -1747,14 +1784,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             if (itemId === 'd6') {   // 貪狼之爪：下次開箱強制觸發 Mimic
                                 setD6ForceMimic(true);
                             }
-                            if (itemId === 'i6') {   // 芭蕉扇：隨機推移玩家位置 ±1 格，清空所在格 MapEntities
-                                const neighbors = getHexRegion(1).filter(p => !(p.q === 0 && p.r === 0));
-                                if (neighbors.length > 0) {
-                                    const pick = neighbors[Math.floor(Math.random() * neighbors.length)];
-                                    const newQ = userData.CurrentQ + pick.q;
-                                    const newR = userData.CurrentR + pick.r;
-                                    onMoveCharacter(newQ, newR, 1);
-                                }
+                            if (itemId === 'i6') {   // 芭蕉扇：開啟方向選擇模式，推走直線怪物 3 格
+                                setIsFanDirectionMode(true);
+                                setIsInventoryOpen(false);
+                                return; // 等待玩家選擇方向，不關閉背包
+                            }
+                            if (res.itemEffect?.type === 'clear_movement_debuff') { // 觀音甘露水：解除移動減益
+                                if (onUpdateMultiplier) onUpdateMultiplier(1);
                             }
                             // Close inventory automatically for convenience
                             setIsInventoryOpen(false);
@@ -1818,6 +1854,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             <button
                                 disabled={isDonating || donateAmount <= 0 || (userData.EnergyDice || 0) < donateAmount}
                                 onClick={async () => {
+                                    if (userData.Role === '白龍馬' && roleTrait?.isCursed) {
+                                        onShowMessage('傲慢之牆！孤立狀態下無法贈送骰子給隊友。', 'error');
+                                        setDonationTarget(null);
+                                        return;
+                                    }
                                     setIsDonating(true);
                                     try {
                                         const res = await donateDice(userData.UserID, donationTarget.data.userId, donateAmount);
@@ -1848,6 +1889,116 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 dbEntities={dbEntities ?? []}
                 userData={userData}
             />
+
+            {/* I4 黃金骰子加持：開箱確認 Dialog */}
+            {pendingChestEntity && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                    <div className="bg-slate-900 border border-amber-500/40 rounded-2xl p-5 w-72 shadow-2xl">
+                        <div className="text-center mb-4">
+                            <div className="text-3xl mb-1">⭐</div>
+                            <div className="text-white font-black text-base">使用黃金骰子加持？</div>
+                            <div className="text-slate-400 text-xs mt-1">消耗 1 顆黃金骰子，保證獲得最高獎勵（+3 能源骰子）並完全無視寶箱怪</div>
+                        </div>
+                        <div className="text-center text-xs text-amber-400 mb-4">你目前有 {userData.GoldenDice ?? 0} 顆 ⭐</div>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => {
+                                    const entity = pendingChestEntity;
+                                    setPendingChestEntity(null);
+                                    onEntityTrigger(entity);
+                                }}
+                                className="flex-1 py-2.5 rounded-xl bg-slate-800 border border-white/5 text-slate-400 text-sm font-bold active:scale-95 transition-all"
+                            >普通開箱</button>
+                            <button
+                                onClick={async () => {
+                                    const entity = pendingChestEntity;
+                                    setPendingChestEntity(null);
+                                    try {
+                                        await blessChestWithGoldenDice(userData.UserID);
+                                        onUpdateUserData({ GoldenDice: Math.max(0, (userData.GoldenDice ?? 0) - 1) });
+                                        onEntityTrigger(entity);
+                                    } catch (err: any) {
+                                        onShowMessage(err.message ?? '黃金加持失敗', 'error');
+                                        onEntityTrigger(entity);
+                                    }
+                                }}
+                                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-500 text-white text-sm font-bold active:scale-95 transition-all"
+                            >⭐ 黃金加持</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* i6 芭蕉扇：方向選擇 Overlay */}
+            {isFanDirectionMode && (() => {
+                const FAN_DIRECTIONS = [
+                    { q: 1, r: -1, label: '↗', name: '東北' },
+                    { q: 1, r: 0,  label: '→', name: '東' },
+                    { q: 0, r: 1,  label: '↘', name: '東南' },
+                    { q: -1, r: 1, label: '↙', name: '西南' },
+                    { q: -1, r: 0, label: '←', name: '西' },
+                    { q: 0, r: -1, label: '↖', name: '西北' },
+                ];
+                return (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                        <div className="bg-slate-900 border border-orange-500/40 rounded-2xl p-5 w-72 shadow-2xl">
+                            <div className="text-center mb-4">
+                                <div className="text-2xl mb-1">🪭</div>
+                                <div className="text-white font-black text-base">芭蕉扇</div>
+                                <div className="text-slate-400 text-xs mt-1">選擇吹風方向，推走前方直線怪物 3 格</div>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 mb-4">
+                                {FAN_DIRECTIONS.map(dir => (
+                                    <button
+                                        key={dir.name}
+                                        onClick={async () => {
+                                            setIsFanDirectionMode(false);
+                                            // 掃描方向 1~3 格，找第一隻怪物
+                                            const monsters = (dbEntities ?? []).filter(e => e.type === 'monster' && e.is_active !== false);
+                                            let targetMonster: any = null;
+                                            for (let dist = 1; dist <= 3; dist++) {
+                                                const checkQ = userData.CurrentQ + dir.q * dist;
+                                                const checkR = userData.CurrentR + dir.r * dist;
+                                                const found = monsters.find(e => e.q === checkQ && e.r === checkR);
+                                                if (found) { targetMonster = found; break; }
+                                            }
+                                            if (!targetMonster) {
+                                                onShowMessage('芭蕉扇：該方向射程內無怪物！', 'info');
+                                                return;
+                                            }
+                                            // 計算推移 3 格後的落點（遇 impassable 或邊界則停前一格）
+                                            let landQ = targetMonster.q;
+                                            let landR = targetMonster.r;
+                                            for (let step = 1; step <= 3; step++) {
+                                                const nextQ = targetMonster.q + dir.q * step;
+                                                const nextR = targetMonster.r + dir.r * step;
+                                                const nextHex = fullGrid.find(h => h.q === nextQ && h.r === nextR);
+                                                if (!nextHex || TERRAIN_TYPES[nextHex.terrainId ?? '']?.impassable) break;
+                                                landQ = nextQ;
+                                                landR = nextR;
+                                            }
+                                            const res = await pushMonsterByFan(userData.UserID, targetMonster.id, landQ, landR);
+                                            if (res.success) {
+                                                onShowMessage(`芭蕉扇！${targetMonster.name ?? '怪物'} 被吹退至 (${landQ}, ${landR})！`, 'success');
+                                            } else {
+                                                onShowMessage(res.error ?? '推移失敗', 'error');
+                                            }
+                                        }}
+                                        className="py-3 rounded-xl bg-slate-800 hover:bg-orange-700/60 border border-white/10 text-white font-black text-lg transition-colors active:scale-95"
+                                    >
+                                        <div>{dir.label}</div>
+                                        <div className="text-[10px] text-slate-400 font-normal">{dir.name}</div>
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                onClick={() => setIsFanDirectionMode(false)}
+                                className="w-full py-2 rounded-xl bg-slate-800 text-slate-400 text-sm hover:text-white transition-colors"
+                            >取消</button>
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
     );
 };
