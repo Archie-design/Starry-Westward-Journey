@@ -1905,7 +1905,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                 onClick={() => {
                                     const entity = pendingChestEntity;
                                     setPendingChestEntity(null);
-                                    if (entity) onEntityTrigger(entity);
+                                    if (entity && onEntityTrigger) onEntityTrigger(entity);
                                 }}
                                 className="flex-1 py-2.5 rounded-xl bg-slate-800 border border-white/5 text-slate-400 text-sm font-bold active:scale-95 transition-all"
                             >普通開箱</button>
@@ -1916,10 +1916,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                     try {
                                         await blessChestWithGoldenDice(userData.UserID);
                                         onUpdateUserData({ GoldenDice: Math.max(0, (userData.GoldenDice ?? 0) - 1) });
-                                        if (entity) onEntityTrigger(entity);
+                                        if (entity && onEntityTrigger) onEntityTrigger(entity);
                                     } catch (err: any) {
                                         onShowMessage(err.message ?? '黃金加持失敗', 'error');
-                                        if (entity) onEntityTrigger(entity);
+                                        if (entity && onEntityTrigger) onEntityTrigger(entity);
                                     }
                                 }}
                                 className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-600 to-yellow-500 text-white text-sm font-bold active:scale-95 transition-all"
