@@ -147,6 +147,13 @@ export default function App() {
     [logs, currentWeeklyMonday]
   );
 
+  // d7 渾天至寶珠：全隊梵天庇護是否啟用（48hr 有效）
+  const d7BuffActive = useMemo(() => {
+    if (!teamSettings?.d7_activated_at) return false;
+    const elapsed = Date.now() - new Date(teamSettings.d7_activated_at).getTime();
+    return elapsed < 48 * 3600 * 1000;
+  }, [teamSettings]);
+
   const roleTrait = useMemo(() => {
     if (!userData) return null;
     const info = ROLE_CURE_MAP[userData.Role];
@@ -172,13 +179,6 @@ export default function App() {
   const todayCompletedQuestIds = useMemo(() => {
     return logs.filter(l => getLogicalDateStr(l.Timestamp) === logicalTodayStr).map(l => l.QuestID);
   }, [logs, logicalTodayStr]);
-
-  // d7 渾天至寶珠：全隊梵天庇護是否啟用（48hr 有效）
-  const d7BuffActive = useMemo(() => {
-    if (!teamSettings?.d7_activated_at) return false;
-    const elapsed = Date.now() - new Date(teamSettings.d7_activated_at).getTime();
-    return elapsed < 48 * 3600 * 1000;
-  }, [teamSettings]);
 
   // 緊箍咒：孫悟空當日未完成 q2（感恩冥想）時觸發，DEF -30%
   // d7 梵天庇護期間免疫五毒詛咒
@@ -944,10 +944,16 @@ export default function App() {
       const res = await processCheckInTransaction(userData.UserID, quest.id, quest.title, quest.reward, quest.dice);
 
       if (res.success && res.user) {
-        const { data: newLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
-        const updatedLogs = (newLogs as DailyLog[]) || [];
+        // Optimistic log update — no round trip needed, server already confirmed success
+        const newLogEntry: DailyLog = {
+          UserID: userData.UserID,
+          QuestID: quest.id,
+          QuestTitle: quest.title,
+          Timestamp: new Date().toISOString(),
+          RewardPoints: quest.reward,
+        };
         setUserData(res.user as CharacterStats);
-        setLogs(updatedLogs);
+        setLogs(prev => [...prev, newLogEntry]);
         setModalMessage(res.rewardCapped
           ? { text: "破咒打卡完成，今日三項修為已滿，本次不計修為。", type: 'info' }
           : { text: "修為提升，法喜充滿！", type: 'success' }
@@ -957,12 +963,14 @@ export default function App() {
             .map((id: string) => ACHIEVEMENT_MAP.get(id))
             .filter(Boolean) as AchievementDef[];
           if (newDefs.length > 0) setAchievementQueue(prev => [...prev, ...newDefs]);
-          const achRecords = await getUserAchievements(userData.UserID);
-          setUserAchievements(achRecords);
+          getUserAchievements(userData.UserID).then(setUserAchievements);
         }
       } else {
         // Sync logs so client state reflects server state (e.g. quest already done)
-        const { data: syncedLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
+        const { data: syncedLogs } = await supabase
+          .from('DailyLogs')
+          .select('QuestID,Timestamp,QuestTitle,UserID,RewardPoints')
+          .eq('UserID', userData.UserID);
         if (syncedLogs) setLogs(syncedLogs as DailyLog[]);
         setModalMessage({ text: res.error || "記錄失敗，靈通中斷。", type: 'error' });
       }
@@ -981,13 +989,18 @@ export default function App() {
       const res = await processUndoTransaction(userData.UserID, quest.id, quest.reward, quest.dice || 0);
 
       if (res.success && res.user) {
-        const { data: newLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
-        const updatedLogs = (newLogs as DailyLog[]) || [];
-        setLogs(updatedLogs);
+        const { data: newLogs } = await supabase
+          .from('DailyLogs')
+          .select('QuestID,Timestamp,QuestTitle,UserID,RewardPoints')
+          .eq('UserID', userData.UserID);
+        setLogs((newLogs as DailyLog[]) || []);
         setUserData(res.user as CharacterStats);
         setModalMessage({ text: "時光回溯成功，心識已歸位。", type: 'success' });
       } else {
-        const { data: syncedLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', userData.UserID);
+        const { data: syncedLogs } = await supabase
+          .from('DailyLogs')
+          .select('QuestID,Timestamp,QuestTitle,UserID,RewardPoints')
+          .eq('UserID', userData.UserID);
         if (syncedLogs) setLogs(syncedLogs as DailyLog[]);
         setModalMessage({ text: res.error || "回溯失敗，業力阻擋。", type: 'error' });
       }

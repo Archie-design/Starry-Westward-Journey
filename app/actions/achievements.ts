@@ -1,12 +1,15 @@
 'use server';
 
-import { connectDb } from '@/lib/db';
 import { createClient } from '@supabase/supabase-js';
 import { getLogicalDateStr } from '@/lib/utils/time';
 import type { AchievementRecord } from '@/types';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+function getServiceClient() {
+    return createClient(supabaseUrl, supabaseKey);
+}
 
 // ─── Role → cureTaskId mapping (server-only, mirrors ROLE_CURE_MAP in constants) ───
 const ROLE_CURE_TASK: Record<string, string> = {
@@ -64,30 +67,32 @@ export async function checkAndUnlockAchievements(
     userId: string,
     _newQuestId: string,
 ): Promise<string[]> {
-    const client = await connectDb();
+    const supabase = getServiceClient();
     try {
-        // 1. Fetch user stats
-        const userRes = await client.query(
-            `SELECT "Role", "Spirit", "Physique", "Charisma", "Savvy", "Luck", "Potential", "TeamName"
-             FROM "CharacterStats" WHERE "UserID" = $1`,
-            [userId]
-        );
-        if (userRes.rowCount === 0) return [];
-        const user = userRes.rows[0];
+        // 1. Fetch user stats, all logs, and existing achievements in parallel via Supabase SDK
+        const [userRes, logsRes, existingRes] = await Promise.all([
+            supabase
+                .from('CharacterStats')
+                .select('Role,Spirit,Physique,Charisma,Savvy,Luck,Potential,TeamName')
+                .eq('UserID', userId)
+                .single(),
+            supabase
+                .from('DailyLogs')
+                .select('QuestID,Timestamp')
+                .eq('UserID', userId)
+                .order('Timestamp', { ascending: true }),
+            supabase
+                .from('Achievements')
+                .select('achievement_id')
+                .eq('user_id', userId),
+        ]);
 
-        // 2. Fetch all DailyLogs for this user
-        const logsRes = await client.query(
-            `SELECT "QuestID", "Timestamp" FROM "DailyLogs" WHERE "UserID" = $1 ORDER BY "Timestamp" ASC`,
-            [userId]
+        if (userRes.error || !userRes.data) return [];
+        const user = userRes.data;
+        const logs = (logsRes.data ?? []) as { QuestID: string; Timestamp: string }[];
+        const alreadyUnlocked = new Set<string>(
+            (existingRes.data ?? []).map((r: { achievement_id: string }) => r.achievement_id)
         );
-        const logs = logsRes.rows as { QuestID: string; Timestamp: string }[];
-
-        // 3. Fetch already-unlocked achievements
-        const existingRes = await client.query(
-            `SELECT achievement_id FROM "Achievements" WHERE user_id = $1`,
-            [userId]
-        );
-        const alreadyUnlocked = new Set<string>(existingRes.rows.map((r: { achievement_id: string }) => r.achievement_id));
 
         // ── Derive counts and date arrays ──────────────────────────────────
         const todayStr = getLogicalDateStr();
@@ -139,18 +144,15 @@ export async function checkAndUnlockAchievements(
         const todayQCount = logs.filter(l => l.QuestID.startsWith('q') && getLogicalDateStr(l.Timestamp) === todayStr).length;
 
         // Gap calculations for comeback/phoenix/prodigal:
-        // Group logs by a canonical questType prefix, exclude today, find max gap to today
         function maxGapForType(typeLogs: { QuestID: string; Timestamp: string }[]): number {
             const histDates = toLogicalDates(typeLogs.map(l => l.Timestamp)).filter(d => d < todayStr);
             return getDaysSinceLast(histDates, todayStr);
         }
 
-        // Build per-questType groups for gap checking
         const questTypeGroups: { QuestID: string; Timestamp: string }[][] = [
             q1Logs, q2Logs, q3Logs, q4Logs, q5Logs, q6Logs, q7Logs
         ].filter(g => g.length > 0);
 
-        // Only check gap for quest types completed today
         const todayQuestIds = new Set(logs
             .filter(l => getLogicalDateStr(l.Timestamp) === todayStr)
             .map(l => l.QuestID));
@@ -158,7 +160,7 @@ export async function checkAndUnlockAchievements(
         let maxGap7 = 0, maxGap14 = 0, maxGap30 = 0;
         for (const group of questTypeGroups) {
             const qid = group[0].QuestID;
-            if (!todayQuestIds.has(qid)) continue; // only check types done today
+            if (!todayQuestIds.has(qid)) continue;
             const gap = maxGapForType(group);
             if (gap > maxGap7) maxGap7 = gap;
             if (gap > maxGap14) maxGap14 = gap;
@@ -176,43 +178,43 @@ export async function checkAndUnlockAchievements(
 
         // ── Team achievement data (only if user has a team) ──────────────
         let teamMemberIds: string[] = [];
-        const teammateLogsToday: Record<string, boolean> = {}; // userId → has q1/q1_dawn today
-        const teammateAnyToday: Record<string, boolean> = {};  // userId → has any quest today
-        const teammateRecentPunch: Record<string, string[]> = {}; // userId → sorted punch dates
+        const teammateLogsToday: Record<string, boolean> = {};
+        const teammateAnyToday: Record<string, boolean> = {};
+        const teammateRecentPunch: Record<string, string[]> = {};
 
         if (user.TeamName) {
-            const membersRes = await client.query(
-                `SELECT "UserID" FROM "CharacterStats" WHERE "TeamName" = $1 AND "UserID" != $2`,
-                [user.TeamName, userId]
-            );
-            teamMemberIds = membersRes.rows.map((r: { UserID: string }) => r.UserID);
+            const since = new Date();
+            since.setDate(since.getDate() - 10);
+
+            // Step 1: get teammate IDs
+            const membersRes = await supabase
+                .from('CharacterStats')
+                .select('UserID')
+                .eq('TeamName', user.TeamName)
+                .neq('UserID', userId);
+
+            teamMemberIds = (membersRes.data ?? []).map((r: { UserID: string }) => r.UserID);
 
             if (teamMemberIds.length > 0) {
-                // Fetch last 10 days of logs for all teammates (enough for streak_3)
-                const since = new Date();
-                since.setDate(since.getDate() - 10);
-                const teammateLogsRes = await client.query(
-                    `SELECT "UserID", "QuestID", "Timestamp" FROM "DailyLogs"
-                     WHERE "UserID" = ANY($1::text[]) AND "Timestamp" >= $2
-                     ORDER BY "UserID", "Timestamp" ASC`,
-                    [teamMemberIds, since.toISOString()]
-                );
-                const tLogs2 = teammateLogsRes.rows as { UserID: string; QuestID: string; Timestamp: string }[];
+                // Step 2: fetch recent logs scoped to teammate IDs only
+                const teammateLogsRes = await supabase
+                    .from('DailyLogs')
+                    .select('UserID,QuestID,Timestamp')
+                    .in('UserID', teamMemberIds)
+                    .gte('Timestamp', since.toISOString());
+
+                const tLogs2 = (teammateLogsRes.data ?? []) as { UserID: string; QuestID: string; Timestamp: string }[];
 
                 for (const tm of teamMemberIds) {
                     const tmLogs = tLogs2.filter(l => l.UserID === tm);
-                    const tmPunchToday = tmLogs.some(l =>
+                    teammateLogsToday[tm] = tmLogs.some(l =>
                         (l.QuestID === 'q1' || l.QuestID === 'q1_dawn') &&
                         getLogicalDateStr(l.Timestamp) === todayStr
                     );
-                    const tmAnyToday = tmLogs.some(l => getLogicalDateStr(l.Timestamp) === todayStr);
-                    teammateLogsToday[tm] = tmPunchToday;
-                    teammateAnyToday[tm] = tmAnyToday;
-
-                    const tmPunchDates = toLogicalDates(
+                    teammateAnyToday[tm] = tmLogs.some(l => getLogicalDateStr(l.Timestamp) === todayStr);
+                    teammateRecentPunch[tm] = toLogicalDates(
                         tmLogs.filter(l => l.QuestID === 'q1' || l.QuestID === 'q1_dawn').map(l => l.Timestamp)
                     );
-                    teammateRecentPunch[tm] = tmPunchDates;
                 }
             }
         }
@@ -235,7 +237,6 @@ export async function checkAndUnlockAchievements(
         if (user.TeamName && selfPunchToday) {
             for (const tm of teamMemberIds) {
                 const tmPunch = teammateRecentPunch[tm] ?? [];
-                // Check last 3 consecutive days ending today
                 const d2 = new Date(todayStr); d2.setDate(d2.getDate() - 1);
                 const d3 = new Date(todayStr); d3.setDate(d3.getDate() - 2);
                 const day2 = d2.toISOString().slice(0, 10);
@@ -299,29 +300,24 @@ export async function checkAndUnlockAchievements(
 
         if (candidates.length === 0) return [];
 
-        // ── Batch insert new achievements ──────────────────────────────────
-        const valuePlaceholders = candidates.map((_, i) => `($1, $${i + 2})`).join(', ');
-        const insertRes = await client.query(
-            `INSERT INTO "Achievements" (user_id, achievement_id)
-             VALUES ${valuePlaceholders}
-             ON CONFLICT (user_id, achievement_id) DO NOTHING
-             RETURNING achievement_id`,
-            [userId, ...candidates]
-        );
+        // ── Batch upsert new achievements (ignoreDuplicates = ON CONFLICT DO NOTHING) ──
+        const rows = candidates.map(id => ({ user_id: userId, achievement_id: id }));
+        const { data: inserted } = await supabase
+            .from('Achievements')
+            .upsert(rows, { onConflict: 'user_id,achievement_id', ignoreDuplicates: true })
+            .select('achievement_id');
 
-        return insertRes.rows.map((r: { achievement_id: string }) => r.achievement_id);
+        return (inserted ?? []).map((r: { achievement_id: string }) => r.achievement_id);
     } catch (err) {
         console.error('[achievements] checkAndUnlockAchievements error:', err);
         return [];
-    } finally {
-        await client.end();
     }
 }
 
 /** Fetch all achievements unlocked by the given user */
 export async function getUserAchievements(userId: string): Promise<AchievementRecord[]> {
     try {
-        const supabase = createClient(supabaseUrl, supabaseKey);
+        const supabase = getServiceClient();
         const { data, error } = await supabase
             .from('Achievements')
             .select('achievement_id, unlocked_at')
