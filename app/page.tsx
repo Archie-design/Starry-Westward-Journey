@@ -795,7 +795,9 @@ export default function App() {
   };
 
   const handleRollDice = async (amount: number = 1) => {
-    if (!userData || isRolling || stepsRemaining > 0) return;
+    // 白龍馬天賦「日行千里」：可在有剩餘步數時追加擲骰（回收步數）
+    const canRollWithSteps = userData?.Role === '白龍馬';
+    if (!userData || isRolling || (stepsRemaining > 0 && !canRollWithSteps)) return;
 
     // Golden Dice Flow triggers number picker
     if (amount === -1) {
@@ -808,12 +810,18 @@ export default function App() {
     }
 
 
-    if (userData.EnergyDice < amount) {
-      setModalMessage({ text: "能量骰子不足！", type: 'error' });
+    // 唐三藏詛咒「寸步難行」：擲骰消耗雙倍骰子（2 顆），步數結果正常
+    const isTangCursed = userData.Role === '唐三藏' && roleTrait?.isCursed;
+    const diceCost = isTangCursed ? 2 : amount;
+    if (userData.EnergyDice < diceCost) {
+      setModalMessage({
+        text: isTangCursed ? '寸步難行！需要 2 顆能量骰子才能行動。' : '能量骰子不足！',
+        type: 'error',
+      });
       return;
     }
     setIsRolling(true);
-    const newDiceCount = userData.EnergyDice - amount;
+    const newDiceCount = userData.EnergyDice - diceCost;
 
     // Await DB write BEFORE animation so a page refresh cannot cancel it.
     // Uses server action (service role key) to bypass RLS and guarantee persistence.
@@ -833,7 +841,6 @@ export default function App() {
       roll += Math.floor(Math.random() * 6) + 1;
     }
     if (userData.Role === '白龍馬') roll += 2 * amount;
-    if (userData.Role === '唐三藏' && roleTrait?.isCursed) roll = Math.max(1, Math.floor(roll / 2));
 
     roll = Math.max(1, Math.floor(roll * moveMultiplier));
 
@@ -842,17 +849,21 @@ export default function App() {
       setSpringDiceBonus(0);
     }
 
-    setStepsRemaining(roll);
+    // 白龍馬天賦「日行千里」回收步數：追加擲骰時舊剩餘步數併入新回合
+    const banked = (userData.Role === '白龍馬' && stepsRemaining > 0) ? stepsRemaining : 0;
+    const totalSteps = roll + banked;
+    setStepsRemaining(totalSteps);
     setMoveMultiplier(1);
     setIsRolling(false);
     setUserData(prev => {
       if (!prev) return null;
       localStorage.setItem(`starry_map_state_${prev.UserID}`, JSON.stringify({
-        stepsRemaining: roll, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
+        stepsRemaining: totalSteps, q: prev.CurrentQ, r: prev.CurrentR, ts: Date.now()
       }));
       return { ...prev, EnergyDice: newDiceCount };
     });
-    setModalMessage({ text: `修行法輪轉動完成！獲得步數：${roll}`, type: 'success' });
+    const bankedText = banked > 0 ? `（含回收 ${banked} 步）` : '';
+    setModalMessage({ text: `修行法輪轉動完成！獲得步數：${totalSteps}${bankedText}`, type: 'success' });
   };
 
   const handleExecuteGoldenDice = async (steps: number) => {
@@ -949,7 +960,7 @@ export default function App() {
       const isBajie = userData.Role === '豬八戒';
 
       // 天賦「福星高照」— 資源雙倍：EnergyDice × 2
-      const finalDice = isBajie ? quest.dice * 2 : quest.dice;
+      const finalDice = isBajie ? (quest.dice ?? 0) * 2 : (quest.dice ?? 0);
 
       // 天賦「福星高照」— 滿骰加 HP：打卡前骰子 >= 30 觸發
       let bajieHPHeal = 0;
@@ -987,7 +998,7 @@ export default function App() {
         let successText = res.rewardCapped
           ? '破咒打卡完成，今日三項修為已滿，本次不計修為。'
           : '修為提升，法喜充滿！';
-        if (isBajie && finalDice > quest.dice) {
+        if (isBajie && (quest.dice ?? 0) > 0) {
           successText += `\n🐷 福星高照！骰子雙倍獲得（+${finalDice}）`;
         }
         if (bajieHPHeal > 0) {

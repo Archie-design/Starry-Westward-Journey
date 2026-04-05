@@ -131,13 +131,21 @@ export async function reviewW4ByAdmin(
     if (updateErr) return { success: false, error: '終審更新失敗：' + updateErr.message };
 
     if (action === 'approve') {
-        // 觸發打卡入帳（修為 1000 + 1 骰子）
+        // 唐三藏天賦「信念之光」：傳愛審核通過時額外獲得 +1 骰子（共 2 顆）
+        const { data: applicantData } = await supabase
+            .from('CharacterStats')
+            .select('Role')
+            .eq('UserID', app.user_id)
+            .single();
+        const w4DiceReward = applicantData?.Role === '唐三藏' ? 2 : 1;
+
+        // 觸發打卡入帳（修為 1000 + 骰子）
         const checkInRes = await processCheckInTransaction(
             app.user_id,
             app.quest_id,
             '傳愛分數',
             1000,
-            1
+            w4DiceReward
         );
         if (!checkInRes.success) {
             // 即使入帳失敗也不回滾審核（避免重複觸發），記錄錯誤

@@ -14,7 +14,7 @@ import { resolveCombat } from '@/app/actions/combat';
 import { applyTrapDamage } from '@/app/actions/map';
 import { donateDice } from '@/app/actions/team';
 import { blessChestWithGoldenDice } from '@/app/actions/dice';
-import { recordSomersaultUsed, useNineToothRake, dragonSoarDonate, usePrajnaMantra } from '@/app/actions/skills';
+import { recordSomersaultUsed, useNineToothRake, dragonSoarDonate, usePrajnaMantra, pullTangSanzang } from '@/app/actions/skills';
 
 // --- Types ---
 interface WorldMapProps {
@@ -506,7 +506,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 onMimicStep?.();
             }
             // 迷走流沙 (Quicksand): 回合結束被強制位移至隨機可行走鄰格。定心 Buff (q4) 或 定心杵技能 免疫
-            if (currentHex?.terrainId === 'quicksand' && !todayCompletedQuestIds.includes('q4')) {
+            // 沙悟淨天賦「捲簾大將」：永久被動免疫流沙強制位移
+            if (currentHex?.terrainId === 'quicksand' && !todayCompletedQuestIds.includes('q4') && userData.Role !== '沙悟淨') {
                 if (dingXinZhuActive) {
                     setDingXinZhuActive(false);
                     setNoCritIncoming(false);
@@ -1722,6 +1723,37 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                 >發動</button>
                             </div>
                         )}
+
+                        {role !== '唐三藏' && (() => {
+                            const tangTeammate = teamMembers.find(m => m.Role === '唐三藏');
+                            if (!tangTeammate) return null;
+                            return (
+                                <div className="bg-slate-800/80 rounded-xl p-3 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-sm font-black text-white">拉一把</span>
+                                        <span className="text-[10px] text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">助隊友</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400">贈送 1 顆能量骰子給 {tangTeammate.Name}（唐三藏詛咒行動需雙倍骰費）</p>
+                                    <button
+                                        disabled={(userData.EnergyDice ?? 0) < 1 || isProcessingItem}
+                                        onClick={async () => {
+                                            setIsProcessingItem(true);
+                                            try {
+                                                const res = await pullTangSanzang(userData.UserID, tangTeammate.UserID, 1);
+                                                if (res.success) {
+                                                    onShowMessage(`拉一把！已贈 1 顆骰子給 ${tangTeammate.Name}。`, 'success');
+                                                    onUpdateUserData({ EnergyDice: Math.max(0, (userData.EnergyDice ?? 1) - 1) });
+                                                } else {
+                                                    onShowMessage(res.error ?? '操作失敗', 'error');
+                                                }
+                                            } catch (e: any) { onShowMessage(e.message, 'error'); }
+                                            finally { setIsProcessingItem(false); }
+                                        }}
+                                        className="w-full py-2 rounded-xl text-xs font-black bg-amber-700 hover:bg-amber-600 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                    >贈送 1 骰子</button>
+                                </div>
+                            );
+                        })()}
                     </div>
                 );
             })()}

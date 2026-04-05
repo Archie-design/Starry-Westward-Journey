@@ -149,3 +149,39 @@ export async function usePrajnaMantra(
 
     return { success: true, monstersKilled, healAmount, message: msg };
 }
+
+/**
+ * 拉一把（隊友助唐三藏）：贈送 1 顆 EnergyDice 給唐三藏隊友
+ * 適用於唐三藏詛咒「寸步難行」需雙倍骰費時，隊友主動補給
+ */
+export async function pullTangSanzang(
+    fromUserId: string,
+    toUserId: string,
+    amount: number = 1,
+): Promise<{ success: boolean; error?: string }> {
+    if (amount <= 0) return { success: false, error: '數量無效。' };
+
+    const { data: from } = await supabase
+        .from('CharacterStats')
+        .select('EnergyDice')
+        .eq('UserID', fromUserId)
+        .single();
+
+    if (!from || (from.EnergyDice ?? 0) < amount)
+        return { success: false, error: '能量骰子不足。' };
+
+    const { data: to } = await supabase
+        .from('CharacterStats')
+        .select('EnergyDice')
+        .eq('UserID', toUserId)
+        .single();
+
+    if (!to) return { success: false, error: '找不到唐三藏。' };
+
+    await Promise.all([
+        supabase.from('CharacterStats').update({ EnergyDice: (from.EnergyDice ?? 0) - amount }).eq('UserID', fromUserId),
+        supabase.from('CharacterStats').update({ EnergyDice: (to.EnergyDice ?? 0) + amount }).eq('UserID', toUserId),
+    ]);
+
+    return { success: true };
+}

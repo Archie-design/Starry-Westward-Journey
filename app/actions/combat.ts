@@ -64,7 +64,27 @@ export async function resolveCombat(params: CombatParams) {
         }
     }
 
-    const finalDEF = playerDEFOverride ?? baseDEF;
+    const baseFinalDEF = playerDEFOverride ?? baseDEF;
+
+    // 天賦「捲簾大將」：若攻擊者相鄰 1 格有隊友沙悟淨，防禦 +10%
+    let wujingDefBonus = 1.0;
+    if (attacker.Role !== '沙悟淨' && attacker.TeamName) {
+        const { data: wujingMembers } = await supabase
+            .from('CharacterStats')
+            .select('CurrentQ, CurrentR')
+            .eq('TeamName', attacker.TeamName)
+            .eq('Role', '沙悟淨')
+            .neq('UserID', attackerId);
+        if (wujingMembers?.length) {
+            const adjacent = wujingMembers.some(w => {
+                const dq = (w.CurrentQ ?? 0) - (attacker.CurrentQ ?? 0);
+                const dr = (w.CurrentR ?? 0) - (attacker.CurrentR ?? 0);
+                return Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) <= 1;
+            });
+            if (adjacent) wujingDefBonus = 1.1;
+        }
+    }
+    const finalDEF = baseFinalDEF * wujingDefBonus;
 
     // 3. Monster Power
     // d2 業障石：降低怪物等級（最低 1）
@@ -251,12 +271,32 @@ export async function resolveCombat(params: CombatParams) {
     // 9. Streak post-battle effects
     let drops: string[] = [];
     if (isVictory) {
-        // 唐三藏 Streak：戰後 HP 回復
-        if (attacker.Role === '唐三藏' && streakTier >= 1) {
-            const baseHP = roleConfig.baseHP + (attacker.Physique * roleConfig.hpScale);
-            const healAmount = Math.floor(baseHP * 0.10);
-            const healed = Math.min(baseHP, newHP + healAmount);
-            await supabase.from('CharacterStats').update({ HP: healed }).eq('UserID', attackerId);
+        // 唐三藏天賦「信念之光」：戰勝後以自身為中心，2 格內所有隊友（含自身）回復 10% MaxHP
+        if (attacker.Role === '唐三藏') {
+            const selfMaxHP = roleConfig.baseHP + (attacker.Physique * roleConfig.hpScale);
+            const selfHeal = Math.ceil(selfMaxHP * 0.10);
+            await supabase.from('CharacterStats')
+                .update({ HP: Math.min(selfMaxHP, newHP + selfHeal) })
+                .eq('UserID', attackerId);
+
+            if (attacker.TeamName) {
+                const { data: teammates } = await supabase
+                    .from('CharacterStats')
+                    .select('UserID, Role, Physique, HP, CurrentQ, CurrentR')
+                    .eq('TeamName', attacker.TeamName)
+                    .neq('UserID', attackerId);
+                for (const tm of teammates ?? []) {
+                    const dq = (tm.CurrentQ ?? 0) - (attacker.CurrentQ ?? 0);
+                    const dr = (tm.CurrentR ?? 0) - (attacker.CurrentR ?? 0);
+                    if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) > 2) continue;
+                    const tmConfig = ROLE_CURE_MAP[tm.Role] || ROLE_CURE_MAP['孫悟空'];
+                    const tmMaxHP = tmConfig.baseHP + ((tm.Physique ?? 0) * tmConfig.hpScale);
+                    const tmHeal = Math.ceil(tmMaxHP * 0.10);
+                    await supabase.from('CharacterStats')
+                        .update({ HP: Math.min(tmMaxHP, (tm.HP ?? tmMaxHP) + tmHeal) })
+                        .eq('UserID', tm.UserID);
+                }
+            }
         }
 
         // 沙悟淨 Streak ≥ 7：首次致死免疫（已在 deathShield 邏輯中處理，此處無需額外操作）
