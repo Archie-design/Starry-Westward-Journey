@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 import {
@@ -13,26 +14,17 @@ import { CharacterStats, DailyLog, Quest, SystemSettings, TopicHistory, Temporar
 import { getLogicalDateStr, getWeeklyMonday } from '@/lib/utils/time';
 import { standardizePhone } from '@/lib/utils/phone';
 import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, PORTAL_DESTINATIONS, getZoneEntryPoint } from '@/lib/constants';
-import { WorldMap } from '@/components/Map/WorldMap';
-
 import { Header } from '@/components/Layout/Header';
 import { LoginForm } from '@/components/Login/LoginForm';
 import { RegisterForm, evaluateFate } from '@/components/Login/RegisterForm';
 import { DailyQuestsTab } from '@/components/Tabs/DailyQuestsTab';
-import { WeeklyTopicTab } from '@/components/Tabs/WeeklyTopicTab';
 import { StatsTab } from '@/components/Tabs/StatsTab';
 import { RankTab } from '@/components/Tabs/RankTab';
-import { CaptainTab } from '@/components/Tabs/CaptainTab';
-import { CommandantTab } from '@/components/Tabs/CommandantTab';
-import { ShopTab } from '@/components/Tabs/ShopTab';
-import { AchievementsTab } from '@/components/Tabs/AchievementsTab';
 import CourseTab from '@/components/Tabs/CourseTab';
-import { PeakTrialTab } from '@/components/Tabs/PeakTrialTab';
 import { getPeakTrialsForPlayer } from '@/app/actions/peakTrials';
 import { AchievementIcon } from '@/components/AchievementIcon';
 import { ACHIEVEMENT_MAP, RARITY_STYLE, type AchievementDef } from '@/lib/achievements';
 import { getUserAchievements } from '@/app/actions/achievements';
-import { AdminDashboard } from '@/components/Admin/AdminDashboard';
 import { processCheckInTransaction, processUndoTransaction } from '@/app/actions/quest';
 import { triggerWeeklySnapshot, importRostersData, checkWeeklyW3Compliance, autoAssignSquadsForTesting, logAdminAction, updateSystemSetting } from '@/app/actions/admin';
 import { getTestimonies } from '@/app/actions/testimonies_admin';
@@ -44,6 +36,19 @@ import { handleChestOpen, handleMimicTerrain } from '@/app/actions/map';
 import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
 import { saveEnergyDice, saveHP, savePosition } from '@/app/actions/player';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
+
+// Heavy components — loaded only when the user first navigates to them
+const WorldMap = dynamic(() => import('@/components/Map/WorldMap').then(m => ({ default: m.WorldMap })), {
+  ssr: false,
+  loading: () => <div className="flex items-center justify-center h-64 text-slate-400">載入地圖中...</div>,
+});
+const WeeklyTopicTab = dynamic(() => import('@/components/Tabs/WeeklyTopicTab').then(m => ({ default: m.WeeklyTopicTab })));
+const CaptainTab = dynamic(() => import('@/components/Tabs/CaptainTab').then(m => ({ default: m.CaptainTab })));
+const CommandantTab = dynamic(() => import('@/components/Tabs/CommandantTab').then(m => ({ default: m.CommandantTab })));
+const ShopTab = dynamic(() => import('@/components/Tabs/ShopTab').then(m => ({ default: m.ShopTab })));
+const AchievementsTab = dynamic(() => import('@/components/Tabs/AchievementsTab').then(m => ({ default: m.AchievementsTab })));
+const PeakTrialTab = dynamic(() => import('@/components/Tabs/PeakTrialTab').then(m => ({ default: m.PeakTrialTab })));
+const AdminDashboard = dynamic(() => import('@/components/Admin/AdminDashboard').then(m => ({ default: m.AdminDashboard })));
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
