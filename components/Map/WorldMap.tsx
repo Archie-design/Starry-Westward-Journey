@@ -529,10 +529,13 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     }, [stepsRemaining, userData.CurrentQ, userData.CurrentR]);
 
     // 迷霧 (Dense Fog) state: active when player stands on fog terrain without 心燈 Buff (q3)
+    // 孫悟空天賦「越戰越勇」：無視迷霧陷阱
     const isFogActive = useMemo(() => {
         const cur = fullGrid.find(h => h.q === userData.CurrentQ && h.r === userData.CurrentR);
-        return cur?.terrainId === 'fog' && !todayCompletedQuestIds.includes('q3');
-    }, [fullGrid, userData.CurrentQ, userData.CurrentR, todayCompletedQuestIds]);
+        return cur?.terrainId === 'fog'
+            && !todayCompletedQuestIds.includes('q3')
+            && userData.Role !== '孫悟空';
+    }, [fullGrid, userData.CurrentQ, userData.CurrentR, todayCompletedQuestIds, userData.Role]);
 
     // i2 火眼金睛（被動）: 持有時可見範圍從 2 格擴大至 3 格
     const fogVisRange = useMemo(() => {

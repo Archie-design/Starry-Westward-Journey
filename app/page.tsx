@@ -13,7 +13,7 @@ import {
 import { CharacterStats, DailyLog, Quest, SystemSettings, TopicHistory, TemporaryQuest, W4Application, AdminLog, Testimony, FinePaymentRecord, AchievementRecord } from '@/types';
 import { getLogicalDateStr, getWeeklyMonday } from '@/lib/utils/time';
 import { standardizePhone } from '@/lib/utils/phone';
-import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, PORTAL_DESTINATIONS, getZoneEntryPoint } from '@/lib/constants';
+import { ROLE_CURE_MAP, DEFAULT_CONFIG, ADVENTURE_COST, ADMIN_PASSWORD, PORTAL_DESTINATIONS, getZoneEntryPoint, BAJIE_FULL_DICE_THRESHOLD } from '@/lib/constants';
 import { Header } from '@/components/Layout/Header';
 import { LoginForm } from '@/components/Login/LoginForm';
 import { RegisterForm, evaluateFate } from '@/components/Login/RegisterForm';
@@ -946,9 +946,33 @@ export default function App() {
     if (!userData) return;
     setIsSyncing(true);
     try {
-      const res = await processCheckInTransaction(userData.UserID, quest.id, quest.title, quest.reward, quest.dice);
+      const isBajie = userData.Role === '豬八戒';
+
+      // 天賦「福星高照」— 資源雙倍：EnergyDice × 2
+      const finalDice = isBajie ? quest.dice * 2 : quest.dice;
+
+      // 天賦「福星高照」— 滿骰加 HP：打卡前骰子 >= 30 觸發
+      let bajieHPHeal = 0;
+      let bajieMaxHP = 0;
+      if (isBajie && (userData.EnergyDice ?? 0) >= BAJIE_FULL_DICE_THRESHOLD) {
+        const roleConfig = ROLE_CURE_MAP[userData.Role] || ROLE_CURE_MAP['孫悟空'];
+        bajieMaxHP = userData.MaxHP ?? (roleConfig.baseHP + (userData.Physique ?? 0) * roleConfig.hpScale);
+        bajieHPHeal = Math.ceil(bajieMaxHP * 0.05);
+      }
+
+      const res = await processCheckInTransaction(userData.UserID, quest.id, quest.title, quest.reward, finalDice);
 
       if (res.success && res.user) {
+        let updatedUser = res.user as CharacterStats;
+
+        // 滿骰回血：打卡成功後執行
+        if (bajieHPHeal > 0) {
+          const currentHP = updatedUser.HP ?? bajieMaxHP;
+          const newHP = Math.min(bajieMaxHP, currentHP + bajieHPHeal);
+          await saveHP(userData.UserID, newHP);
+          updatedUser = { ...updatedUser, HP: newHP };
+        }
+
         // Optimistic log update — no round trip needed, server already confirmed success
         const newLogEntry: DailyLog = {
           UserID: userData.UserID,
@@ -957,11 +981,21 @@ export default function App() {
           Timestamp: new Date().toISOString(),
           RewardPoints: quest.reward,
         };
-        setUserData(res.user as CharacterStats);
+        setUserData(updatedUser);
         setLogs(prev => [...prev, newLogEntry]);
+
+        let successText = res.rewardCapped
+          ? '破咒打卡完成，今日三項修為已滿，本次不計修為。'
+          : '修為提升，法喜充滿！';
+        if (isBajie && finalDice > quest.dice) {
+          successText += `\n🐷 福星高照！骰子雙倍獲得（+${finalDice}）`;
+        }
+        if (bajieHPHeal > 0) {
+          successText += `\n滿骰福澤，回復 ${bajieHPHeal} HP！`;
+        }
         setModalMessage(res.rewardCapped
-          ? { text: "破咒打卡完成，今日三項修為已滿，本次不計修為。", type: 'info' }
-          : { text: "修為提升，法喜充滿！", type: 'success' }
+          ? { text: successText, type: 'info' }
+          : { text: successText, type: 'success' }
         );
         if (res.newAchievements && res.newAchievements.length > 0) {
           const newDefs = res.newAchievements

@@ -92,6 +92,7 @@ export const ARTIFACTS_CONFIG = [
 ];
 export const ADVENTURE_COST = 1;
 export const ADMIN_PASSWORD = "123";
+export const BAJIE_FULL_DICE_THRESHOLD = 30; // 豬八戒天賦「福星高照」滿骰觸發閾值
 
 export const CHEST_LOOT_TABLE = [
     { dice: 1, weight: 60 },
