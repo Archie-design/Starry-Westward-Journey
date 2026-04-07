@@ -549,11 +549,11 @@ export default function App() {
   const handleAddTempQuest = async (title: string, sub: string, desc: string, reward: number) => {
     setIsSyncing(true);
     try {
-      const id = `temp_${Date.now()}`;
-      const dbRow = { id, title, sub, desc, reward, limit_count: 1, active: true };
+      const quest_id = `temp_${Date.now()}`;
+      const dbRow = { quest_id, title, sub, desc, reward, limit_count: 1, active: true };
       const { error } = await supabase.from('temporaryquests').insert([dbRow]);
       if (error) throw error;
-      const newQuest: TemporaryQuest = { id, title, sub, desc, reward, limit: 1, active: true };
+      const newQuest: TemporaryQuest = { id: quest_id, title, sub, desc, reward, limit: 1, active: true };
       setTemporaryQuests(prev => [newQuest, ...prev]);
       await logAdminAction('temp_quest_add', adminActorName, id, title, { reward });
     } catch (err) {
@@ -567,7 +567,7 @@ export default function App() {
   const handleToggleTempQuest = async (id: string, active: boolean) => {
     setIsSyncing(true);
     try {
-      const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', id);
+      const { error } = await supabase.from('temporaryquests').update({ active }).eq('quest_id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.map(q => q.id === id ? { ...q, active } : q));
       await logAdminAction('temp_quest_toggle', adminActorName, id, undefined, { active });
@@ -582,7 +582,7 @@ export default function App() {
     if (!confirm("確定要刪除此臨時任務嗎？刪除後無法恢復。")) return;
     setIsSyncing(true);
     try {
-      const { error } = await supabase.from('temporaryquests').delete().eq('id', id);
+      const { error } = await supabase.from('temporaryquests').delete().eq('quest_id', id);
       if (error) throw error;
       setTemporaryQuests(prev => prev.filter(q => q.id !== id));
       await logAdminAction('temp_quest_delete', adminActorName, id);
@@ -1235,7 +1235,7 @@ export default function App() {
 
       const { data: tempQuestsData } = await supabase.from('temporaryquests').select('*').order('created_at', { ascending: false });
       if (tempQuestsData) {
-        const parsed = tempQuestsData.map((t: any) => ({ ...t, limit: t.limit_count }));
+        const parsed = tempQuestsData.map((t: any) => ({ ...t, id: t.quest_id, limit: t.limit_count ?? 1 }));
         setTemporaryQuests(parsed as TemporaryQuest[]);
       }
     };

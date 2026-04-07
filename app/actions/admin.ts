@@ -742,6 +742,28 @@ export async function deleteBonusQuestRule(id: string) {
     return { success: true };
 }
 
+// ── 臨時任務 CRUD ─────────────────────────────────────────
+export async function addTempQuest(quest_id: string, title: string, sub: string, desc: string, reward: number) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { error } = await supabase.from('temporaryquests').insert([{ id: quest_id, quest_id, title, sub, desc, reward, limit_count: 1, active: true }]);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
+export async function toggleTempQuest(quest_id: string, active: boolean) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', quest_id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
+export async function deleteTempQuest(quest_id: string) {
+    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const { error } = await supabase.from('temporaryquests').delete().eq('id', quest_id);
+    if (error) return { success: false, error: error.message };
+    return { success: true };
+}
+
 export async function saveBirthday(userId: string, birthday: string) {
     // Validate format YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return { success: false, error: '日期格式錯誤，請使用 YYYY-MM-DD' };

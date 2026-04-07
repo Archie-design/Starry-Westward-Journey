@@ -7,7 +7,7 @@ import type { SystemSettings, TopicHistory, TemporaryQuest, BonusQuestRule } fro
 import { TOPIC_PHASES } from '@/lib/constants';
 import { getCurrentTopicPhase } from '@/lib/utils/time';
 import { useAdmin } from '../AdminContext';
-import { updateSystemSetting, logAdminAction, triggerWeeklySnapshot, listBonusQuestRules, upsertBonusQuestRule, deleteBonusQuestRule } from '@/app/actions/admin';
+import { updateSystemSetting, logAdminAction, triggerWeeklySnapshot, listBonusQuestRules, upsertBonusQuestRule, deleteBonusQuestRule, addTempQuest, toggleTempQuest, deleteTempQuest } from '@/app/actions/admin';
 import { autoDrawAllSquads } from '@/app/actions/team';
 
 const supabase = createClient(
@@ -75,7 +75,7 @@ export function TasksModule() {
             }
             if (historyRes.data) setTopicHistory(historyRes.data as TopicHistory[]);
             if (tempQuestsRes.data) {
-                setTemporaryQuests(tempQuestsRes.data.map((t: any) => ({ ...t, limit: t.limit_count })) as TemporaryQuest[]);
+                setTemporaryQuests(tempQuestsRes.data.map((t: any) => ({ ...t, id: t.quest_id, limit: t.limit_count ?? 1 })) as TemporaryQuest[]);
             }
             setLoading(false);
         };
@@ -139,7 +139,8 @@ export function TasksModule() {
 
     const handleAddTempQuest = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        const fd = new FormData(e.currentTarget);
+        const form = e.currentTarget;
+        const fd = new FormData(form);
         const title = fd.get('title') as string;
         const sub = fd.get('sub') as string;
         const desc = fd.get('desc') as string;
@@ -147,13 +148,12 @@ export function TasksModule() {
         if (!title || !reward) return;
 
         try {
-            const id = `temp_${Date.now()}`;
-            const dbRow = { id, title, sub, desc, reward, limit_count: 1, active: true };
-            const { error } = await supabase.from('temporaryquests').insert([dbRow]);
-            if (error) throw error;
-            setTemporaryQuests(prev => [{ id, title, sub, desc, reward, limit: 1, active: true }, ...prev]);
-            await logAdminAction('temp_quest_add', actorName, id, title, { reward });
-            e.currentTarget.reset();
+            const quest_id = `temp_${Date.now()}`;
+            const res = await addTempQuest(quest_id, title, sub, desc, reward);
+            if (!res.success) throw new Error(res.error);
+            setTemporaryQuests(prev => [{ id: quest_id, title, sub, desc, reward, limit: 1, active: true }, ...prev]);
+            await logAdminAction('temp_quest_add', actorName, quest_id, title, { reward });
+            form.reset();
         } catch {
             showMessage('新增臨時任務失敗。', 'error');
         }
@@ -161,8 +161,8 @@ export function TasksModule() {
 
     const handleToggleTempQuest = async (id: string, active: boolean) => {
         try {
-            const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', id);
-            if (error) throw error;
+            const res = await toggleTempQuest(id, active);
+            if (!res.success) throw new Error(res.error);
             setTemporaryQuests(prev => prev.map(q => q.id === id ? { ...q, active } : q));
             await logAdminAction('temp_quest_toggle', actorName, id, undefined, { active });
         } catch {
@@ -173,8 +173,8 @@ export function TasksModule() {
     const handleDeleteTempQuest = async (id: string) => {
         if (!confirm('確定要刪除此臨時任務嗎？刪除後無法恢復。')) return;
         try {
-            const { error } = await supabase.from('temporaryquests').delete().eq('id', id);
-            if (error) throw error;
+            const res = await deleteTempQuest(id);
+            if (!res.success) throw new Error(res.error);
             setTemporaryQuests(prev => prev.filter(q => q.id !== id));
             await logAdminAction('temp_quest_delete', actorName, id);
         } catch {
