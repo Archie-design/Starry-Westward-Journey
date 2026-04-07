@@ -555,7 +555,7 @@ export default function App() {
       if (error) throw error;
       const newQuest: TemporaryQuest = { id: quest_id, title, sub, desc, reward, limit: 1, active: true };
       setTemporaryQuests(prev => [newQuest, ...prev]);
-      await logAdminAction('temp_quest_add', adminActorName, id, title, { reward });
+      await logAdminAction('temp_quest_add', adminActorName, quest_id, title, { reward });
     } catch (err) {
       console.error(err);
       setModalMessage({ text: "新增臨時任務失敗。", type: 'error' });
