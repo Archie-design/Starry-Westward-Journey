@@ -1546,7 +1546,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                         }
                         const monsterLevel = combatTarget.data?.level || 1;
                         const coinReward = Math.floor(Math.max(monsterLevel, Math.floor(userData.Level * 0.75)) * 20);
-                        onShowMessage(captureRes.message ?? `收妖葫蘆發動！${combatTarget.name || '心魔'} 被收服！獲得 ${coinReward} 金幣。`, 'success');
+                        onShowMessage(captureRes.message ?? `收妖葫蘆發動！${combatTarget.name || '心魔'} 被收服！獲得 ${coinReward} 靈石。`, 'success');
                         setIsCombatModalOpen(false);
                         if (onUpdateSteps) onUpdateSteps(0);
                         const newInv = (userData.GameInventory || []).map((i: any) => i.id === 'i1' ? { ...i, count: i.count - 1 } : i).filter((i: any) => i.count > 0);

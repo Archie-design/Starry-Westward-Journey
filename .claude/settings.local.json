@@ -60,7 +60,8 @@
       "Bash(grep \"ADD COLUMN\\\\|IsBlessed\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
       "Bash(wc -l /Users/keke/starry-westward-journey/app/actions/*.ts)",
       "Bash(grep -n \"CREATE TABLE.*TeamSettings\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
-      "Bash(grep -n \"const.*=.*dynamic\\\\|const.*=.*React.memo\\\\|const.*=.*React.lazy\" /Users/keke/starry-westward-journey/components/**/*.tsx)"
+      "Bash(grep -n \"const.*=.*dynamic\\\\|const.*=.*React.memo\\\\|const.*=.*React.lazy\" /Users/keke/starry-westward-journey/components/**/*.tsx)",
+      "Bash(grep -i \"DemonDropBoost\\\\|demon\\\\|chest\\\\|kill\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)"
     ]
   }
 }

@@ -45,7 +45,7 @@ export function GameInventoryModal({ isOpen, onClose, userData, onUseItem }: Gam
 
                 <div className="bg-slate-950 px-6 py-3 flex items-center justify-between shrink-0 border-b border-white/5">
                     <div className="flex items-center gap-2 text-yellow-500 font-black text-sm">
-                        <Cpu size={16} /> 遊戲金幣: {userData.GameGold || 0}
+                        <Cpu size={16} /> 靈石: {userData.GameGold || 0}
                     </div>
                 </div>
 

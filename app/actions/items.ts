@@ -30,7 +30,7 @@ export async function buyGameItem(userId: string, itemId: string, cost: number) 
         if (fetchErr || !user) return { success: false, error: "無法獲取玩家資料" };
 
         const currentGold = user.GameGold || 0;
-        if (currentGold < cost) return { success: false, error: "金幣不足" };
+        if (currentGold < cost) return { success: false, error: "靈石不足" };
 
         const currentInv = user.GameInventory || [];
         const itemIdx = currentInv.findIndex((i: any) => i.id === itemId);

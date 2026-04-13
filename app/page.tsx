@@ -200,13 +200,13 @@ export default function App() {
     if (d7BuffActive) {
       await supabase.from('CharacterStats').update({ CurrentQ: 0, CurrentR: 0 }).eq('UserID', userData.UserID);
       setUserData(prev => prev ? { ...prev, CurrentQ: 0, CurrentR: 0 } : null);
-      setModalMessage({ text: '⚰️ 戰敗陣亡！梵天庇護生效，金幣無損失，已傳送回本心草原。', type: 'error' });
+      setModalMessage({ text: '⚰️ 戰敗陣亡！梵天庇護生效，靈石無損失，已傳送回本心草原。', type: 'error' });
     } else {
       const penalty = Math.max(10, Math.floor(currentGold * 0.03));
       const newGold = Math.max(0, currentGold - penalty);
       await supabase.from('CharacterStats').update({ GameGold: newGold, CurrentQ: 0, CurrentR: 0 }).eq('UserID', userData.UserID);
       setUserData(prev => prev ? { ...prev, GameGold: newGold, CurrentQ: 0, CurrentR: 0 } : null);
-      setModalMessage({ text: `⚰️ 戰敗陣亡！失去 ${penalty} 金幣（${currentGold} → ${newGold}），已傳送回本心草原。`, type: 'error' });
+      setModalMessage({ text: `⚰️ 戰敗陣亡！失去 ${penalty} 靈石（${currentGold} → ${newGold}），已傳送回本心草原。`, type: 'error' });
     }
   };
 

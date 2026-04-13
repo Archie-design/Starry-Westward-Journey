@@ -42,7 +42,7 @@ export function NPCShopModal({ isOpen, onClose, userData, onBuyItem }: NPCShopMo
 
                 <div className="bg-slate-950 px-6 py-3 flex items-center justify-between shrink-0 border-b border-white/5">
                     <div className="flex items-center gap-2 text-yellow-500 font-black text-sm">
-                        <Coins size={16} /> 您持有的金幣: <span className="text-white ml-1">{gameGold}</span>
+                        <Coins size={16} /> 您持有的靈石: <span className="text-white ml-1">{gameGold}</span>
                     </div>
                 </div>
 

@@ -241,7 +241,7 @@ export async function resolveCombat(params: CombatParams) {
             try { await supabase.rpc('global_dice_bonus', { p_amount: 1 }); } catch (_) { /* non-critical */ }
         }
 
-        rewardMsg = ` 獲得 ${coinReward} 金幣`;
+        rewardMsg = ` 獲得 ${coinReward} 靈石`;
         if (totalDiceReward > 0) rewardMsg += `, ${totalDiceReward} 能源骰子`;
         if (demonDiceBonus > 0) rewardMsg += ` (含心魔掉落 ${demonDiceBonus})`;
         if (eliteDiceBonus > 0) rewardMsg += ` (含精英掉落 ${eliteDiceBonus})`;

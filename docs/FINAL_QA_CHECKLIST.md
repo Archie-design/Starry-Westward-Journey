@@ -121,8 +121,8 @@
 | E2 | DDA 等效等級 | `effectiveLevel = max(monsterLv, floor(playerLv × 0.75))` | ✅ |
 | E3 | 側翼/背刺加成 | 側翼 ×1.3、背刺 ×1.5，第一擊才有效 | ✅ |
 | E4 | 暴擊/閃避 | 暴擊率 = Luck×5%；閃避率 = max(0, (10-Luck)×2%) | ✅ |
-| E5 | 戰鬥獎勵 | GameGold = effectiveLevel×20；骰子 10%；黃金骰 2%/精英10% | ✅ |
-| E6 | 死亡懲罰 | GameGold ×3%（最低10）；傳送回 (0,0) | ✅ |
+| E5 | 戰鬥獎勵 | 靈石 = effectiveLevel×20；骰子 10%；黃金骰 2%/精英10% | ✅ |
+| E6 | 死亡懲罰 | 靈石 ×3%（最低10）；傳送回 (0,0) | ✅ |
 | E7 | i3 錦鑭袈裟 | 致死傷害保 1 HP（本場有效，戰後清除） | ✅ |
 | E8 | i4 如意金剛琢 | 封印怪物被動（frenzy 等），戰後清除 | ✅ |
 | E9 | i9 九轉金丹 | 本場全屬性 +50%（戰後清除） | ✅ |
@@ -138,7 +138,7 @@
 
 **E6 已實裝**：死亡懲罰此前完全缺失。已新增：
 - `WorldMap.tsx` `onAttack` 結果後，`newHP === 0 && !deathShieldTriggered` 時呼叫 `onPlayerDeath?.()`
-- `page.tsx` `handlePlayerDeath`：d7 梵天庇護期間只傳送不扣金；否則扣 `max(10, GameGold × 3%)` 並重置位置至 (0,0)
+- `page.tsx` `handlePlayerDeath`：d7 梵天庇護期間只傳送不扣金；否則扣 `max(10, 靈石 × 3%)` 並重置位置至 (0,0)
 
 **E14 已修正**（D 區）：`playerDEFOverride` 正確傳入 `resolveCombat`，DEF -30% 在 server 端實際生效。
 
@@ -246,11 +246,11 @@
 | # | 項目 | 驗收標準 | 狀態 |
 |---|------|---------|------|
 | K1 | 金幣（Coins）計算 | 打卡時 `floor(base_reward × 0.1)` 金幣（a2 +150 修為不含金幣）；法寶倍率在修為上，金幣從 base_reward 計算 | ✅ |
-| K2 | GameGold 來源 | 打怪獎勵 `effectiveLevel × 20` → `CharacterStats.GameGold`；與 Coins 嚴格隔離 | ✅ |
+| K2 | 靈石來源 | 打怪獎勵 `effectiveLevel × 20` → `CharacterStats.GameGold`；與 Coins 嚴格隔離 | ✅ |
 | K3 | 個人法寶購買 | a1/a2/a6 從 `Coins` 扣款；庫存寫入 `CharacterStats.Inventory`；a5 互斥/年齡/a6 a6 定風珠解鎖 | ✅ |
 | K4 | 捐贈小隊金庫 | 扣個人 `Coins`，加至 `TeamSettings.team_coins`；`pg` transaction 保原子性 | ✅ |
 | K5 | 團隊法寶購買 | 從 `team_coins` 扣款；費用 = 單價 × 成員數；寫入 `TeamSettings.inventory` | ✅ |
-| K6 | NPC 消耗道具購買 | 從 `GameGold` 扣款；`GameInventory` 陣列 count +1 | ✅ |
+| K6 | NPC 消耗道具購買 | 從靈石扣款；`GameInventory` 陣列 count +1 | ✅ |
 
 ### K 區修正說明
 

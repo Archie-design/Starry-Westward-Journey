@@ -68,7 +68,7 @@ END_DATE         = "2026-07-25"
 | 貨幣 | 欄位 | 用途 |
 |------|------|------|
 | 金幣 | `Coins` | 法寶(a1,a2,a6)、捐贈部隊 |
-| 遊戲黃金 | `GameGold` | NPC 道具商店(`i1~i10`，`GameInventory`) |
+| 靈石 | `GameGold` | NPC 道具商店(`i1~i10`，`GameInventory`) |
 | 能源骰子 | `EnergyDice` | 移動AP（無上限） |
 | 黃金骰子 | `GoldenDice` | 加持開箱、捐贈隊友；由活動/心魔掉落 |
 
@@ -78,7 +78,7 @@ END_DATE         = "2026-07-25"
 
 | 類型 | 公式 |
 |------|------|
-| **遊戲黃金 (GameGold)** | `monsterLevel × 20` |
+| **靈石** | `monsterLevel × 20` |
 | 骰子 | 10% 機率 +1 |
 | 黃金骰子 | 2% 機率 +1 |
 
