@@ -8,6 +8,11 @@ export interface AchievementDef {
     roleExclusive?: string;
 }
 
+export const ZONE_CHAR_TO_ID: Record<string, string> = {
+    '慢': 'pride', '疑': 'doubt', '嗔': 'anger',
+    '貪': 'greed', '痴': 'delusion', '亂': 'chaos',
+};
+
 export const RARITY_STYLE = {
     common:    { border: 'border-orange-700/50', glow: 'shadow-orange-900/40',  text: 'text-orange-400',  bg: 'bg-orange-950/30',  label: '常見' },
     rare:      { border: 'border-slate-400/50',  glow: 'shadow-slate-500/40',   text: 'text-slate-200',   bg: 'bg-slate-700/20',   label: '罕見' },
@@ -64,5 +69,56 @@ export const ACHIEVEMENTS: AchievementDef[] = [
     { id: 'monk_streak',       name: '取經之心',   rarity: 'legendary', icon: '📿', hint: '十萬八千里，一步未停…',         description: '連續 14 天有完成任意定課',          roleExclusive: '唐三藏' },
 ];
 
-export const ACHIEVEMENT_MAP = new Map(ACHIEVEMENTS.map(a => [a.id, a]));
-export const TOTAL_ACHIEVEMENTS = ACHIEVEMENTS.length;
+// ── 地圖成就（40 個）─────────────────────────────────────────────────────────
+export const MAP_ACHIEVEMENTS: AchievementDef[] = [
+    // ── 探索類（5）────────────────────────────────────────────────────────
+    { id: 'hometown_guard',  name: '本心守護者', rarity: 'rare',      icon: '🏠', hint: '越靠近本心，魔之所在，便是最需守護之地…',     description: '在距原點最近之地（≤3 格），擊殺了侵入本心的心魔' },
+    { id: 'far_explorer',    name: '心魔腹地',   rarity: 'rare',      icon: '🌑', hint: '十步之外，地圖已與尋常不同…',                 description: '深入心魔腹地（距原點 10–12 格），擊殺怪物' },
+    { id: 'zone_all_six',    name: '六境行者',   rarity: 'epic',      icon: '🧭', hint: '心有六執，走遍方知本心之所在…',               description: '在全部 6 個心魔區域各擊殺至少 1 隻怪物' },
+    { id: 'deep_wanderer',   name: '深淵勇士',   rarity: 'rare',      icon: '🏔️', hint: '離本心越遠，考驗越深，卻也越能照見自己…',     description: '在距原點 13 格以上的深淵地帶擊殺怪物（怪物約 Lv17）' },
+    { id: 'hexes_100',       name: '千里長征',   rarity: 'epic',      icon: '👣', hint: '行路之量，非一日之功，亦非一戰可得…',         description: '累計移動格數突破 100' },
+    // ── 戰鬥類（13）──────────────────────────────────────────────────────
+    { id: 'first_blood',     name: '初戰告捷',   rarity: 'common',    icon: '⚔️',  hint: '行路之上，第一個攔路者，往往是最重要的…',     description: '擊殺了第一隻心魔' },
+    { id: 'kills_10',        name: '初露鋒芒',   rarity: 'common',    icon: '🗡️',  hint: '十次手起刀落後，始知何為無懼…',               description: '累計擊殺 10 隻心魔' },
+    { id: 'kills_30',        name: '嶄露鋒芒',   rarity: 'common',    icon: '⚔️',  hint: '三十，只是開始，真正的戰場在更深處…',         description: '累計擊殺 30 隻心魔' },
+    { id: 'kills_50',        name: '心魔剋星',   rarity: 'rare',      icon: '🔱',  hint: '半百之戰，戰的不是外魔，是內心的影…',         description: '累計擊殺 50 隻心魔' },
+    { id: 'kills_100',       name: '降魔真人',   rarity: 'epic',      icon: '🐉',  hint: '百戰歸來，魔已非魔，皆化修行…',               description: '累計擊殺 100 隻心魔' },
+    { id: 'kills_200',       name: '魔滅如塵',   rarity: 'legendary', icon: '🌊',  hint: '兩百魔，兩百面鏡，你已不再懼怕其中的影…',     description: '累計擊殺 200 隻心魔' },
+    { id: 'elite_slayer',    name: '勇挑強敵',   rarity: 'rare',      icon: '👑',  hint: '精英之名，非因其強，乃因未遇真勇者…',         description: '擊殺了精英心魔' },
+    { id: 'demon_slayer',    name: '斬妖除魔',   rarity: 'epic',      icon: '💀',  hint: '最難降的不是妖，是遇妖時心中升起的懼…',       description: '擊殺了魔王心魔' },
+    { id: 'perfect_victory', name: '無傷通關',   rarity: 'rare',      icon: '✨',  hint: '身無一傷，非因敵弱，乃因心定…',               description: '以滿 HP 狀態進入戰鬥並獲勝' },
+    { id: 'underdog',        name: '以弱勝強',   rarity: 'epic',      icon: '⚡',  hint: '勝負非由數字而定，而由心之堅韌…',             description: '在怪物等級比自己高 5 級以上的情況下獲勝' },
+    { id: 'zone_specialist', name: '一域宗師',   rarity: 'rare',      icon: '🏯',  hint: '一地之魔，盡皆俯首，方知所謂擅長…',           description: '在同一心魔區域累計擊殺 20 隻以上' },
+    { id: 'triple_kill_day', name: '三戰連捷',   rarity: 'rare',      icon: '🔥',  hint: '三敵盡掃，此日非虛度…',                       description: '在同一天擊殺 3 隻以上心魔' },
+    { id: 'comeback_win',    name: '置之死地',   rarity: 'epic',      icon: '💪',  hint: '看似殘破的那一刻，往往藏著最後的翻轉…',       description: '以不足 30% HP 進入戰鬥，最終獲勝' },
+    // ── 寶箱/地圖類（8）──────────────────────────────────────────────────
+    { id: 'first_chest',     name: '緣遇珍寶',   rarity: 'common',    icon: '📦',  hint: '路旁所遇，皆有緣，皆是禮…',                   description: '首次開啟寶箱' },
+    { id: 'chests_10',       name: '尋寶行者',   rarity: 'rare',      icon: '💰',  hint: '十次俯身，十次與命運的對話…',                 description: '累計開啟 10 個寶箱' },
+    { id: 'chests_30',       name: '大尋寶家',   rarity: 'rare',      icon: '💎',  hint: '三十次偶遇，早已非偶然…',                     description: '累計開啟 30 個寶箱' },
+    { id: 'mimic_master',    name: '慧眼識偽',   rarity: 'rare',      icon: '👁️',  hint: '藏於寶箱之中者，未必是寶，慧眼方辨…',         description: '成功通過一次魅怪慧根檢定' },
+    { id: 'mimic_veteran',   name: '老手識偽',   rarity: 'epic',      icon: '👁️',  hint: '五次面對欺騙，五次看穿，慧根已深植…',         description: '累計成功通過 5 次魅怪慧根檢定' },
+    { id: 'golden_chest',    name: '金光寶氣',   rarity: 'epic',      icon: '🌟',  hint: '百箱之中，藏著那道金光，等你發現…',           description: '在寶箱中獲得黃金骰子' },
+    { id: 'fog_survivor',    name: '霧裡仍勇',   rarity: 'rare',      icon: '🌫️',  hint: '霧，遮住了路，卻遮不住心中的意志…',           description: '觸發迷霧陷阱後，在同一天成功擊殺怪物' },
+    { id: 'near_death',      name: '一線之間',   rarity: 'epic',      icon: '💔',  hint: '那最後一口氣，往往藏著最大的奇蹟…',           description: '以不足 10% HP 進入戰鬥並獲勝' },
+    // ── 隊友合作類（5）────────────────────────────────────────────────────
+    { id: 'team_fighter',    name: '並肩作戰',   rarity: 'rare',      icon: '🤝',  hint: '並肩者，非必為師，有時只是同路之人…',         description: '在任意隊友相鄰（≤1格）的情況下贏得戰鬥' },
+    { id: 'shield_brother',  name: '同袍相護',   rarity: 'rare',      icon: '🛡️',  hint: '身邊有人，背後無憂，勝利非一人之功…',         description: '在沙悟淨隊友相鄰（≤1格）的情況下贏得戰鬥' },
+    { id: 'dice_benefactor', name: '慷慨同行',   rarity: 'rare',      icon: '🎲',  hint: '給予，從不讓自己變少…',                       description: '累計贈予隊友能量骰子 5 次以上' },
+    { id: 'lucky_heist',     name: '得助而征',   rarity: 'epic',      icon: '🍀',  hint: '有人拉了你一把，你方知路還沒有走完…',         description: '接受隊友能量骰子贈予後，在同一天成功擊殺怪物' },
+    { id: 'healing_light',   name: '仁心普澤',   rarity: 'rare',      icon: '💫',  hint: '一戰之後，光照四方，同行皆得庇護…',           description: '以唐三藏身份，一場勝利後治癒 2 位以上隊友', roleExclusive: '唐三藏' },
+    // ── 角色技能類（9，全部 role-exclusive）──────────────────────────────
+    { id: 'wukong_streak7',  name: '越戰越勇',   rarity: 'epic',      icon: '🐒',  hint: '七日不輟，戰場上的你已非昨日之猴…',           description: '以孫悟空身份，在連續打卡 7 天狀態下贏得戰鬥', roleExclusive: '孫悟空' },
+    { id: 'bajie_streak7',   name: '福澤滿溢',   rarity: 'epic',      icon: '🐷',  hint: '七日堅持，連戰場上的命運都向你微笑…',         description: '以豬八戒身份，在連續打卡 7 天狀態下贏得戰鬥', roleExclusive: '豬八戒' },
+    { id: 'wujing_streak7',  name: '銅壁鐵牆',   rarity: 'epic',      icon: '🏺',  hint: '七日不倒，化身行走的屏障，魔難傷分毫…',       description: '以沙悟淨身份，在連續打卡 7 天狀態下贏得戰鬥', roleExclusive: '沙悟淨' },
+    { id: 'horse_streak7',   name: '日行千里',   rarity: 'epic',      icon: '🐴',  hint: '七日如一，每步皆快，每步皆有力…',             description: '以白龍馬身份，在連續打卡 7 天狀態下贏得戰鬥', roleExclusive: '白龍馬' },
+    { id: 'monk_streak7',    name: '佛光普照',   rarity: 'epic',      icon: '📿',  hint: '七日信念不息，光自然照破黑暗…',               description: '以唐三藏身份，在連續打卡 7 天狀態下贏得戰鬥', roleExclusive: '唐三藏' },
+    { id: 'wukong_obsidian', name: '穿石破壁',   rarity: 'epic',      icon: '🗿',  hint: '這堵牆，只是為了試驗那個有心破它的人…',       description: '以孫悟空身份，利用金箍棒穿越黑曜石 3 次以上', roleExclusive: '孫悟空' },
+    { id: 'bajie_digger',    name: '九齒掘寶',   rarity: 'rare',      icon: '⛏️',  hint: '老豬的鼻子，天生就是為了找到寶貝的…',         description: '以豬八戒身份，累計開啟 15 個以上寶箱', roleExclusive: '豬八戒' },
+    { id: 'wujing_guardian', name: '守護神盾',   rarity: 'epic',      icon: '🛡️',  hint: '沙，看似無形，卻擋住了千萬道侵擾…',           description: '以沙悟淨身份，在隊友相鄰的情況下累計贏得 5 場戰鬥', roleExclusive: '沙悟淨' },
+    { id: 'horse_traveler',  name: '龍馬精神',   rarity: 'epic',      icon: '🏇',  hint: '步步皆有意義，縱然無人計數，馬知…',           description: '以白龍馬身份，累計移動格數突破 150', roleExclusive: '白龍馬' },
+];
+
+export const ACHIEVEMENT_MAP = new Map(
+    [...ACHIEVEMENTS, ...MAP_ACHIEVEMENTS].map(a => [a.id, a])
+);
+export const TOTAL_ACHIEVEMENTS = ACHIEVEMENTS.length + MAP_ACHIEVEMENTS.length;

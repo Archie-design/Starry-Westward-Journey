@@ -2,6 +2,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { CHEST_LOOT_TABLE, MIMIC_CHANCE } from "@/lib/constants";
+import { checkMapAchievements } from "@/app/actions/achievements";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -38,6 +39,8 @@ export async function handleChestOpen(userId: string, entityId: string, skipMimi
     let lootDice = 0;
     let lootGoldenDice = 0;
 
+    let mimicCheckPassed = false;
+
     if (isMimic) {
         // 進行「慧根 (Savvy)」檢定 (DC 12)
         const roll = Math.floor(Math.random() * 20) + 1;
@@ -58,6 +61,7 @@ export async function handleChestOpen(userId: string, entityId: string, skipMimi
             }
         } else {
             // 檢定成功
+            mimicCheckPassed = true;
             if (forceMimic) {
                 // d6 貪狼之爪：成功 → +3 黃金骰
                 lootGoldenDice = 3;
@@ -82,7 +86,7 @@ export async function handleChestOpen(userId: string, entityId: string, skipMimi
                 break;
             }
         }
-        
+
         const newDice = (user.EnergyDice || 0) + lootDice;
         await supabase.from('CharacterStats').update({ EnergyDice: newDice }).eq('UserID', userId);
         message = `打開寶箱！你獲得了 ${lootDice} 個能源骰子。`;
@@ -91,12 +95,31 @@ export async function handleChestOpen(userId: string, entityId: string, skipMimi
     // 3. 移除地圖上的箱子實體
     await supabase.from('MapEntities').delete().eq('id', entityId);
 
+    // 4. 更新寶箱計數器 & MimicSuccesses（fire-and-forget）
+    const uExt = user as any;
+    const chestUpdates: Record<string, any> = {
+        TotalChestsOpened: (uExt.TotalChestsOpened ?? 0) + 1,
+    };
+    if (mimicCheckPassed) {
+        chestUpdates.MimicSuccesses = (uExt.MimicSuccesses ?? 0) + 1;
+    }
+    supabase.from('CharacterStats').update(chestUpdates).eq('UserID', userId)
+        .then(({ error }) => { if (error) console.error('[map] chest counter update failed:', error.message); });
+
+    // 5. 檢查地圖成就
+    const newMapAchievements = await checkMapAchievements(userId, {
+        event: 'chest_open',
+        lootedGoldenDice: lootGoldenDice > 0,
+        playerRole: user.Role,
+    });
+
     return {
         success: true,
         message,
         lootDice,
         lootGoldenDice,
-        isMimic
+        isMimic,
+        newMapAchievements,
     };
 }
 
@@ -156,7 +179,7 @@ export async function applyTrapDamage(trapEntityId: string, monsterEntityId: str
  * DC 12：成功 +1 骰子，失敗 -1 骰子。每次踏入皆觸發，無冷卻。
  */
 export async function handleMimicTerrain(userId: string): Promise<{
-    success: boolean; gained: number; message: string;
+    success: boolean; gained: number; message: string; newMapAchievements?: string[];
 }> {
     const supabase = createClient(supabaseUrl, supabaseActionKey);
     const { data: user } = await supabase
@@ -173,14 +196,26 @@ export async function handleMimicTerrain(userId: string): Promise<{
     const delta = pass ? 1 : -1;
     const newDice = Math.max(0, (user.EnergyDice ?? 0) + delta);
 
+    const terrainUpdates: Record<string, any> = { EnergyDice: newDice };
+    if (pass) {
+        const { data: uFull } = await supabase
+            .from('CharacterStats').select('MimicSuccesses').eq('UserID', userId).single();
+        terrainUpdates.MimicSuccesses = ((uFull as any)?.MimicSuccesses ?? 0) + 1;
+    }
+
     await supabase
         .from('CharacterStats')
-        .update({ EnergyDice: newDice })
+        .update(terrainUpdates)
         .eq('UserID', userId);
+
+    const newMapAchievements = await checkMapAchievements(userId, {
+        event: 'mimic_check',
+        mimicPassed: pass,
+    });
 
     const msg = pass
         ? `識破偽裝寶箱！（骰出 ${roll} + 慧根 ${savvy} = ${total} ≥ 12）反手獲得 1 顆能量骰子！`
         : `上當了！（骰出 ${roll} + 慧根 ${savvy} = ${total} < 12）失去 1 顆能量骰子。`;
 
-    return { success: true, gained: delta, message: msg };
+    return { success: true, gained: delta, message: msg, newMapAchievements };
 }

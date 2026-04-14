@@ -34,7 +34,7 @@ import { submitW4Application, reviewW4BySquadLeader, reviewW4ByAdmin, getW4Appli
 import { generateWeeklyReview, generateCaptainBriefing } from '@/app/actions/gemini';
 import { handleChestOpen, handleMimicTerrain } from '@/app/actions/map';
 import { exchangeGoldenDiceToEnergy } from '@/app/actions/dice';
-import { saveEnergyDice, saveHP, savePosition } from '@/app/actions/player';
+import { saveEnergyDice, saveHP, savePosition, recordHexMove } from '@/app/actions/player';
 import { getSquadFineStatus, recordFinePayment, setPaidToCaptainDate, getSquadFinePaymentHistory, checkSquadW3Compliance, recordOrgSubmission, getSquadOrgSubmissions } from '@/app/actions/fines';
 
 // Heavy components — loaded only when the user first navigates to them
@@ -516,8 +516,12 @@ export default function App() {
           type: result.isMimic && !result.lootDice ? 'error' : 'success',
           image: result.isMimic ? '/images/chests/chest_mimic.png' : '/images/chests/chest_normal.png',
         });
+        if (result.newMapAchievements?.length) handleNewMapAchievements(result.newMapAchievements);
       }
     } catch (err) {
+      // 還原被樂觀移除的實體，避免寶箱靜默消失
+      setMapEntities(prev => prev.some(e => e.id === entity.id) ? prev : [...prev, entity]);
+      setModalMessage({ text: err instanceof Error ? err.message : '操作失敗，請重試。', type: 'error' });
       console.error(err);
     } finally {
       setIsSyncing(false);
@@ -914,6 +918,14 @@ export default function App() {
     setShowExchangeConfirm(false);
   };
 
+  const handleNewMapAchievements = (ids: string[]) => {
+    const newDefs = ids.map(id => ACHIEVEMENT_MAP.get(id)).filter(Boolean) as AchievementDef[];
+    if (newDefs.length > 0) {
+      setAchievementQueue(prev => [...prev, ...newDefs]);
+      if (userData) getUserAchievements(userData.UserID).then(setUserAchievements);
+    }
+  };
+
   const handleMoveCharacter = async (q: number, r: number, dist: number, zoneId?: string, newFacing?: number) => {
     if (!userData) return;
     setIsSyncing(true);
@@ -941,6 +953,13 @@ export default function App() {
 
       setUserData(prev => prev ? { ...prev, CurrentQ: finalQ, CurrentR: finalR, TotalFines: newFines, Facing: finalFacing } : null);
       setStepsRemaining(remaining);
+
+      // 記錄移動格數並偵測地圖成就（fire-and-forget）
+      if (dist > 0) {
+        recordHexMove(userData.UserID, dist).then(({ newMapAchievements }) => {
+          if (newMapAchievements.length > 0) handleNewMapAchievements(newMapAchievements);
+        }).catch(() => {});
+      }
 
       if (penaltyText) {
         setModalMessage({ text: penaltyText, type: 'error' });
@@ -1603,31 +1622,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Achievement Unlock Modal */}
-      {achievementQueue.length > 0 && (() => {
-        const def = achievementQueue[0];
-        const style = RARITY_STYLE[def.rarity];
-        return (
-          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
-            <div className="w-full max-w-sm space-y-4 text-center">
-              <p className="text-white font-black text-lg">✨ 成就解鎖！</p>
-              <div className={`p-6 rounded-3xl border-2 ${style.border} ${style.bg} shadow-2xl shadow-[0_0_40px_rgba(0,0,0,0.5)]`}>
-                <div className="flex justify-center mb-3"><AchievementIcon def={def} size="lg" /></div>
-                <h3 className={`text-2xl font-black ${style.text}`}>{def.name}</h3>
-                <p className={`text-xs font-bold uppercase tracking-widest mt-1 ${style.text} opacity-70`}>{style.label}</p>
-                <p className="text-slate-300 text-sm mt-3 leading-relaxed">{def.description}</p>
-              </div>
-              <button
-                onClick={() => setAchievementQueue(prev => prev.slice(1))}
-                className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-2xl transition-all active:scale-95 shadow-lg"
-              >
-                領旨！
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
       <footer className="fixed bottom-0 left-0 right-0 p-10 bg-gradient-to-t from-slate-950 via-slate-950 to-transparent pointer-events-none z-30 flex justify-center text-center mx-auto">
         <button
           disabled={(userData?.EnergyDice || 0) < ADVENTURE_COST}
@@ -1769,6 +1763,8 @@ dbEntities={mapEntities}
           onQuicksandDrift={handleQuicksandDrift}
           onPlayerDeath={handlePlayerDeath}
           teamMembers={leaderboard.filter(p => p.TeamName && p.TeamName === userData?.TeamName && p.UserID !== userData?.UserID)}
+          onNewAchievements={handleNewMapAchievements}
+          userAchievements={userAchievements}
         />
           </div>
         </div>
@@ -1877,6 +1873,31 @@ dbEntities={mapEntities}
             <div className="flex gap-4 text-center mx-auto"><button onClick={() => setUndoTarget(null)} className="flex-1 py-4 bg-slate-800 text-slate-500 font-black rounded-2xl text-center shadow-lg transition-all active:scale-95">保持現狀</button><button onClick={() => handleUndoCheckInAction(undoTarget)} className="flex-1 py-4 bg-orange-600 text-white font-black rounded-2xl shadow-xl active:scale-95 transition-all text-center mx-auto">確認回溯</button></div>
           </div>
         </div>
+        );
+      })()}
+
+      {/* Achievement Unlock Modal — 全域，地圖與定課頁均可觸發 */}
+      {achievementQueue.length > 0 && (() => {
+        const def = achievementQueue[0];
+        const style = RARITY_STYLE[def.rarity];
+        return (
+          <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 bg-black/70 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="w-full max-w-sm space-y-4 text-center">
+              <p className="text-white font-black text-lg">✨ 成就解鎖！</p>
+              <div className={`p-6 rounded-3xl border-2 ${style.border} ${style.bg} shadow-2xl shadow-[0_0_40px_rgba(0,0,0,0.5)]`}>
+                <div className="flex justify-center mb-3"><AchievementIcon def={def} size="lg" /></div>
+                <h3 className={`text-2xl font-black ${style.text}`}>{def.name}</h3>
+                <p className={`text-xs font-bold uppercase tracking-widest mt-1 ${style.text} opacity-70`}>{style.label}</p>
+                <p className="text-slate-300 text-sm mt-3 leading-relaxed">{def.description}</p>
+              </div>
+              <button
+                onClick={() => setAchievementQueue(prev => prev.slice(1))}
+                className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white font-black rounded-2xl transition-all active:scale-95 shadow-lg"
+              >
+                領旨！
+              </button>
+            </div>
+          </div>
         );
       })()}
 

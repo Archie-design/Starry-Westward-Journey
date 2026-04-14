@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 import { DAILY_QUEST_CONFIG } from "@/lib/constants";
 import { logAdminAction } from "@/app/actions/admin";
 import { SquadMemberStats } from "@/types";
+import { checkMapAchievements } from "@/app/actions/achievements";
+import { getLogicalDateStr } from "@/lib/utils/time";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -176,9 +178,27 @@ export async function donateDice(fromUserId: string, toUserId: string, amount: n
 
     if (rpcErr) throw new Error("捐贈過程發生錯誤：" + rpcErr.message);
 
-    return { 
-        success: true, 
-        message: `成功捐贈 ${amount} 個能源骰子給 ${recipient.Nickname || recipient.UserID}！` 
+    // 更新捐贈計數器 & 受贈日期（fire-and-forget）
+    const today = getLogicalDateStr();
+    const dExt = donor as any;
+    supabase.from('CharacterStats')
+        .update({ DonatedDice: (dExt.DonatedDice ?? 0) + 1 })
+        .eq('UserID', fromUserId)
+        .then(({ error }) => { if (error) console.error('[team] DonatedDice update failed:', error.message); });
+    supabase.from('CharacterStats')
+        .update({ DiceReceivedDate: today })
+        .eq('UserID', toUserId)
+        .then(({ error }) => { if (error) console.error('[team] DiceReceivedDate update failed:', error.message); });
+
+    // 檢查地圖成就（捐贈者視角）
+    const newMapAchievements = await checkMapAchievements(fromUserId, {
+        event: 'dice_donated',
+    });
+
+    return {
+        success: true,
+        message: `成功捐贈 ${amount} 個能源骰子給 ${recipient.Nickname || recipient.UserID}！`,
+        newMapAchievements,
     };
 }
 

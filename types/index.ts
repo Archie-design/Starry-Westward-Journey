@@ -39,6 +39,22 @@ export interface CharacterStats {
   IsCommandant?: boolean; // 大隊長
   IsGM?: boolean;         // GM 遊戲管理員
   LineUserId?: string;    // LINE Login 綁定 ID
+  // ── Map achievement tracking ─────────────────────────────────────────
+  TotalKills?: number;
+  EliteKills?: number;
+  DemonKills?: number;
+  TotalChestsOpened?: number;
+  ZonesCleared?: string[];                    // zone IDs where ≥1 kill recorded
+  TotalHexesMoved?: number;
+  ZoneKillCounts?: Record<string, number>;    // { pride: 5, anger: 22, … }
+  MimicSuccesses?: number;
+  DonatedDice?: number;
+  ObsidianPassages?: number;                  // 孫悟空 obsidian passage count
+  GuardianWins?: number;                      // 沙悟淨 adjacent-ally win count
+  FogTrapDate?: string | null;                // logical date of last fog trap trigger
+  DiceReceivedDate?: string | null;           // logical date of last dice received
+  DailyKillDate?: string | null;              // logical date of current daily kill streak
+  DailyKillCount?: number;                    // kills on DailyKillDate
 }
 
 export interface Roster {

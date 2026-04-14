@@ -61,7 +61,13 @@
       "Bash(wc -l /Users/keke/starry-westward-journey/app/actions/*.ts)",
       "Bash(grep -n \"CREATE TABLE.*TeamSettings\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
       "Bash(grep -n \"const.*=.*dynamic\\\\|const.*=.*React.memo\\\\|const.*=.*React.lazy\" /Users/keke/starry-westward-journey/components/**/*.tsx)",
-      "Bash(grep -i \"DemonDropBoost\\\\|demon\\\\|chest\\\\|kill\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)"
+      "Bash(grep -i \"DemonDropBoost\\\\|demon\\\\|chest\\\\|kill\" /Users/keke/starry-westward-journey/supabase/migrations/*.sql)",
+      "Bash(grep \"^\\\\| \\\\`\" /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
+      "Bash(grep \"^\\\\| \\\\`[a-z]\" /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
+      "Bash(/Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
+      "Bash(grep \"^\\\\| \\\\`` /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
+      "Bash(grep -E \"^\\\\| \\\\`[a-z_]+\\\\`\" /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
+      "Bash(grep -oE '`[a-z_]+`' /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)"
     ]
   }
 }

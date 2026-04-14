@@ -314,6 +314,179 @@ export async function checkAndUnlockAchievements(
     }
 }
 
+// ─── Map Achievement Context ──────────────────────────────────────────────────
+
+export interface MapAchievementContext {
+    event: 'combat_victory' | 'chest_open' | 'mimic_check' | 'dice_donated' | 'hex_moved' | 'obsidian_passage';
+    // Combat fields (for combat_victory)
+    monsterType?: 'normal' | 'elite' | 'demon';
+    monsterLevel?: number;
+    playerLevel?: number;
+    playerHPBefore?: number;      // HP entering combat
+    playerMaxHP?: number;
+    playerStreak?: number;
+    playerRole?: string;
+    zoneId?: string;              // 'pride' | 'doubt' | 'anger' | 'greed' | 'delusion' | 'chaos'
+    distFromOrigin?: number;      // hex distance from (0,0)
+    adjacentAllyCount?: number;   // allies within ≤1 hex
+    hasAdjacentWujing?: boolean;  // 沙悟淨 specifically adjacent
+    healedTeammateCount?: number; // teammates healed (唐三藏 passive)
+    killsToday?: number;          // total kills on this logical day AFTER this kill
+    // Chest fields (for chest_open / mimic_check)
+    lootedGoldenDice?: boolean;
+    mimicPassed?: boolean;
+}
+
+/**
+ * After a map event (combat victory / chest open / dice donated / etc.),
+ * evaluate all 40 map achievement conditions and unlock newly-earned ones.
+ * Counters in CharacterStats MUST be updated before calling this.
+ * Returns IDs of newly unlocked achievements.
+ */
+export async function checkMapAchievements(
+    userId: string,
+    ctx: MapAchievementContext,
+): Promise<string[]> {
+    const supabase = getServiceClient();
+    try {
+        const [userRes, existingRes] = await Promise.all([
+            supabase
+                .from('CharacterStats')
+                .select([
+                    'Role', 'Streak',
+                    'TotalKills', 'EliteKills', 'DemonKills',
+                    'TotalChestsOpened', 'ZonesCleared', 'TotalHexesMoved',
+                    'ZoneKillCounts', 'MimicSuccesses', 'DonatedDice',
+                    'ObsidianPassages', 'GuardianWins',
+                    'FogTrapDate', 'DiceReceivedDate',
+                    'DailyKillCount',
+                ].join(','))
+                .eq('UserID', userId)
+                .single(),
+            supabase
+                .from('Achievements')
+                .select('achievement_id')
+                .eq('user_id', userId),
+        ]);
+
+        if (userRes.error || !userRes.data) return [];
+        // Cast to any: new map-achievement columns are not yet in Supabase generated types
+        const u = userRes.data as any;
+        const alreadyUnlocked = new Set<string>(
+            (existingRes.data ?? []).map((r: { achievement_id: string }) => r.achievement_id)
+        );
+
+        const today = getLogicalDateStr();
+        const candidates: string[] = [];
+        const check = (id: string, cond: boolean) => {
+            if (!alreadyUnlocked.has(id) && cond) candidates.push(id);
+        };
+
+        // ── DB counters (fresh after updates) ────────────────────────────
+        const role            = ctx.playerRole ?? u.Role;
+        const streak          = ctx.playerStreak ?? u.Streak ?? 0;
+        const totalKills      = u.TotalKills ?? 0;
+        const eliteKills      = u.EliteKills ?? 0;
+        const demonKills      = u.DemonKills ?? 0;
+        const chestsOpened    = u.TotalChestsOpened ?? 0;
+        const zonesCleared: string[] = Array.isArray(u.ZonesCleared) ? u.ZonesCleared : [];
+        const hexesMoved      = u.TotalHexesMoved ?? 0;
+        const zoneKillCounts: Record<string, number> = u.ZoneKillCounts ?? {};
+        const mimicSuccesses  = u.MimicSuccesses ?? 0;
+        const donatedDice     = u.DonatedDice ?? 0;
+        const obsidianPasses  = u.ObsidianPassages ?? 0;
+        const guardianWins    = u.GuardianWins ?? 0;
+        const fogTrapDate     = u.FogTrapDate ?? null;
+        const diceReceivedDate = u.DiceReceivedDate ?? null;
+
+        // ── Event-specific ctx values ─────────────────────────────────────
+        const isVictory  = ctx.event === 'combat_victory';
+        const isChest    = ctx.event === 'chest_open' || ctx.event === 'mimic_check';
+        const monsterLv  = ctx.monsterLevel ?? 0;
+        const playerLv   = ctx.playerLevel ?? 0;
+        const hpBefore   = ctx.playerHPBefore ?? Infinity;
+        const maxHP      = ctx.playerMaxHP ?? 1;
+        const hpRatio    = maxHP > 0 ? hpBefore / maxHP : 1;
+        const dist       = ctx.distFromOrigin ?? 0;
+        const killsToday = ctx.killsToday ?? u.DailyKillCount ?? 0;
+        const maxZoneKills = Object.values(zoneKillCounts).reduce(
+            (acc: number, v: unknown) => Math.max(acc, Number(v) || 0), 0
+        );
+
+        // ── Counter-based (check on every event) ─────────────────────────
+        check('hexes_100',       hexesMoved >= 100);
+        check('zone_specialist', maxZoneKills >= 20);
+        check('dice_benefactor', donatedDice >= 5);
+        check('wukong_obsidian', obsidianPasses >= 3);
+        check('horse_traveler',  role === '白龍馬' && hexesMoved >= 150);
+
+        // ── Combat victory ────────────────────────────────────────────────
+        if (isVictory) {
+            // Exploration
+            check('hometown_guard', dist <= 3);
+            check('far_explorer',   dist >= 10 && dist <= 12);
+            check('deep_wanderer',  dist >= 13);
+            check('zone_all_six',   zonesCleared.length >= 6);
+            // Kill milestones
+            check('first_blood',    totalKills >= 1);
+            check('kills_10',       totalKills >= 10);
+            check('kills_30',       totalKills >= 30);
+            check('kills_50',       totalKills >= 50);
+            check('kills_100',      totalKills >= 100);
+            check('kills_200',      totalKills >= 200);
+            check('elite_slayer',   eliteKills >= 1);
+            check('demon_slayer',   demonKills >= 1);
+            // Combat conditions
+            check('perfect_victory', hpBefore >= maxHP);
+            check('underdog',        monsterLv >= playerLv + 5);
+            check('triple_kill_day', killsToday >= 3);
+            check('comeback_win',    hpRatio <= 0.30);
+            check('near_death',      hpRatio <= 0.10);
+            // Team
+            check('team_fighter',   (ctx.adjacentAllyCount ?? 0) >= 1);
+            check('shield_brother', !!ctx.hasAdjacentWujing && role !== '沙悟淨');
+            check('healing_light',  role === '唐三藏' && (ctx.healedTeammateCount ?? 0) >= 2);
+            // Cross-day events
+            check('fog_survivor',   !!fogTrapDate && fogTrapDate === today);
+            check('lucky_heist',    !!diceReceivedDate && diceReceivedDate === today);
+            // Streak role-exclusives
+            if (streak >= 7) {
+                check('wukong_streak7', role === '孫悟空');
+                check('bajie_streak7',  role === '豬八戒');
+                check('wujing_streak7', role === '沙悟淨');
+                check('horse_streak7',  role === '白龍馬');
+                check('monk_streak7',   role === '唐三藏');
+            }
+            // Role-exclusive kill/guardian
+            check('wujing_guardian', role === '沙悟淨' && guardianWins >= 5);
+        }
+
+        // ── Chest / mimic events ──────────────────────────────────────────
+        if (isChest) {
+            check('first_chest',     chestsOpened >= 1);
+            check('chests_10',       chestsOpened >= 10);
+            check('chests_30',       chestsOpened >= 30);
+            check('golden_chest',    !!ctx.lootedGoldenDice);
+            check('mimic_master',    mimicSuccesses >= 1);
+            check('mimic_veteran',   mimicSuccesses >= 5);
+            check('bajie_digger',    role === '豬八戒' && chestsOpened >= 15);
+        }
+
+        if (candidates.length === 0) return [];
+
+        const rows = candidates.map(id => ({ user_id: userId, achievement_id: id }));
+        const { data: inserted } = await supabase
+            .from('Achievements')
+            .upsert(rows, { onConflict: 'user_id,achievement_id', ignoreDuplicates: true })
+            .select('achievement_id');
+
+        return (inserted ?? []).map((r: { achievement_id: string }) => r.achievement_id);
+    } catch (err) {
+        console.error('[achievements] checkMapAchievements error:', err);
+        return [];
+    }
+}
+
 /** Fetch all achievements unlocked by the given user */
 export async function getUserAchievements(userId: string): Promise<AchievementRecord[]> {
     try {

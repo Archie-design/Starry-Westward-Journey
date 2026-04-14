@@ -3,6 +3,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { CharacterStats } from '@/types';
 import { ROLE_CURE_MAP, DEFAULT_CONFIG } from '@/lib/constants';
+import { checkMapAchievements } from '@/app/actions/achievements';
+import { ZONE_CHAR_TO_ID } from '@/lib/achievements';
+import { getLogicalDateStr } from '@/lib/utils/time';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
@@ -270,6 +273,8 @@ export async function resolveCombat(params: CombatParams) {
 
     // 9. Streak post-battle effects
     let drops: string[] = [];
+    let newMapAchievements: string[] = [];
+    let healedTeammateCount = 0;
     if (isVictory) {
         // 唐三藏天賦「信念之光」：戰勝後以自身為中心，2 格內所有隊友（含自身）回復 10% MaxHP
         if (attacker.Role === '唐三藏') {
@@ -295,6 +300,7 @@ export async function resolveCombat(params: CombatParams) {
                     await supabase.from('CharacterStats')
                         .update({ HP: Math.min(tmMaxHP, (tm.HP ?? tmMaxHP) + tmHeal) })
                         .eq('UserID', tm.UserID);
+                    healedTeammateCount++;
                 }
             }
         }
@@ -344,6 +350,84 @@ export async function resolveCombat(params: CombatParams) {
                 }
             }
         }
+
+        // ── 11. Map achievement tracking ──────────────────────────────────────
+        const today = getLogicalDateStr();
+        const zoneId = ZONE_CHAR_TO_ID[monsterData.zone as string] ?? '';
+        const dist = Math.max(
+            Math.abs(attacker.CurrentQ ?? 0),
+            Math.abs(attacker.CurrentR ?? 0),
+            Math.abs((attacker.CurrentQ ?? 0) + (attacker.CurrentR ?? 0))
+        );
+
+        // Daily kill counter
+        const aExt = attacker as any;
+        const prevDailyDate   = aExt.DailyKillDate ?? null;
+        const prevDailyCount  = aExt.DailyKillCount ?? 0;
+        const newDailyKillCount = prevDailyDate === today ? prevDailyCount + 1 : 1;
+
+        // Zone kill tracking
+        const prevZones: string[]                   = aExt.ZonesCleared ?? [];
+        const newZonesCleared = zoneId
+            ? [...new Set([...prevZones, zoneId])]
+            : prevZones;
+        const prevZoneCounts: Record<string, number> = aExt.ZoneKillCounts ?? {};
+        const newZoneCounts = { ...prevZoneCounts };
+        if (zoneId) newZoneCounts[zoneId] = (newZoneCounts[zoneId] ?? 0) + 1;
+
+        // Adjacent ally check (for team_fighter / wujing_guardian)
+        let adjacentAllyCount = 0;
+        if (attacker.TeamName) {
+            const { data: allTm } = await supabase
+                .from('CharacterStats')
+                .select('CurrentQ, CurrentR')
+                .eq('TeamName', attacker.TeamName)
+                .neq('UserID', attackerId);
+            for (const tm of allTm ?? []) {
+                const dq = (tm.CurrentQ ?? 0) - (attacker.CurrentQ ?? 0);
+                const dr = (tm.CurrentR ?? 0) - (attacker.CurrentR ?? 0);
+                if (Math.max(Math.abs(dq), Math.abs(dr), Math.abs(dq + dr)) <= 1) {
+                    adjacentAllyCount++;
+                }
+            }
+        }
+
+        // GuardianWins: 沙悟淨 with adjacent ally wins
+        const newGuardianWins = (attacker.Role === '沙悟淨' && adjacentAllyCount > 0)
+            ? (aExt.GuardianWins ?? 0) + 1
+            : (aExt.GuardianWins ?? 0);
+
+        // Batch-update kill/zone counters (non-critical, fire-and-forget on error)
+        supabase.from('CharacterStats').update({
+            TotalKills:      (aExt.TotalKills  ?? 0) + 1,
+            EliteKills:      isEliteMonster ? (aExt.EliteKills ?? 0) + 1 : (aExt.EliteKills ?? 0),
+            DemonKills:      monsterType === 'demon' ? (aExt.DemonKills ?? 0) + 1 : (aExt.DemonKills ?? 0),
+            ZonesCleared:    newZonesCleared,
+            ZoneKillCounts:  newZoneCounts,
+            GuardianWins:    newGuardianWins,
+            DailyKillDate:   today,
+            DailyKillCount:  newDailyKillCount,
+        }).eq('UserID', attackerId).then(({ error }) => {
+            if (error) console.error('[combat] kill counter update failed:', error.message);
+        });
+
+        // Check map achievements (counters already updated above)
+        newMapAchievements = await checkMapAchievements(attackerId, {
+            event: 'combat_victory',
+            monsterType: monsterType as 'normal' | 'elite' | 'demon',
+            monsterLevel: monsterData.level,
+            playerLevel:  attacker.Level,
+            playerHPBefore: currentHP,
+            playerMaxHP:    roleConfig.baseHP + (attacker.Physique * roleConfig.hpScale),
+            playerStreak:   attacker.Streak ?? 0,
+            playerRole:     attacker.Role,
+            zoneId,
+            distFromOrigin:      dist,
+            adjacentAllyCount,
+            hasAdjacentWujing:   wujingDefBonus > 1.0,
+            healedTeammateCount,
+            killsToday:          newDailyKillCount,
+        });
     }
 
     return {
@@ -359,6 +443,7 @@ export async function resolveCombat(params: CombatParams) {
         drops: isVictory ? (drops ?? []) : [],
         monsterRemainingHP: Math.max(0, monsterHP),
         battleLog,
+        newMapAchievements,
         message: isVictory
             ? `大獲全勝！你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，擊殺心魔。${rewardMsg}`
             : `你發動 ${battleLog.length} 次連擊造成 ${totalPlayerDamage} 點傷害，遭到反擊受到 ${totalMonsterDamage} 點傷害。`

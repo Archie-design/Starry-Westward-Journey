@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { ChevronLeft, MapIcon, Dice5, Loader2, Minus, Plus, Footprints, Package, Store, LocateFixed, Globe } from 'lucide-react';
-import { CharacterStats, HexData } from '@/types';
+import { CharacterStats, HexData, AchievementRecord } from '@/types';
+import { MAP_ACHIEVEMENTS, RARITY_STYLE } from '@/lib/achievements';
+import { AchievementIcon } from '@/components/AchievementIcon';
 import { DEFAULT_CONFIG, TERRAIN_TYPES, ROLE_CURE_MAP, ZONES } from '@/lib/constants';
 import { getHexRegion, axialToPixelPos, getHexDist, pixelToAxial, getCombatMultiplier, getHexDirection, hexLineDraw } from '@/lib/utils/hex';
 import { getMonsterImageSrc } from '@/lib/utils/monster';
@@ -15,6 +17,7 @@ import { applyTrapDamage } from '@/app/actions/map';
 import { donateDice } from '@/app/actions/team';
 import { blessChestWithGoldenDice } from '@/app/actions/dice';
 import { recordSomersaultUsed, useNineToothRake, dragonSoarDonate, usePrajnaMantra, pullTangSanzang } from '@/app/actions/skills';
+import { recordObsidianPassage, recordFogTrap } from '@/app/actions/player';
 
 // --- Types ---
 interface WorldMapProps {
@@ -52,6 +55,8 @@ interface WorldMapProps {
     onQuicksandDrift?: (newQ: number, newR: number) => void;
     onPlayerDeath?: () => void;     // E6 死亡懲罰：HP歸零時通知 page.tsx 處理
     teamMembers?: CharacterStats[];  // 白龍馬龍騰：隊友選擇
+    onNewAchievements?: (ids: string[]) => void;
+    userAchievements?: AchievementRecord[];
 }
 
 // --- Memoized Static Layer ---
@@ -145,12 +150,15 @@ export const WorldMap: React.FC<WorldMapProps> = ({
     onSpringHeal, onPortalUse, onPortalReturn, onIsolationFreeze, onLavaDoT, onGeyserKnockback,
     onDeepBog, onMimicStep, onQuicksandDrift, onPlayerDeath,
     teamMembers = [],
+    onNewAchievements,
+    userAchievements = [],
 }) => {
     // Navigation & Scale — initialize camera centered on player to avoid first-render flash
     const [camX, setCamX] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).x);
     const [camY, setCamY] = useState(() => -axialToPixelPos(initialQ, initialR, DEFAULT_CONFIG.HEX_SIZE_WORLD).y);
     const [zoom, setZoom] = useState(1);
     const [isOverviewOpen, setIsOverviewOpen] = useState(false);
+    const [isMapAchievementsOpen, setIsMapAchievementsOpen] = useState(false);
     const [rollAmount, setRollAmount] = useState(1);
     const [hoveredHexKey, setHoveredHexKey] = useState<string | null>(null);
     const [interceptTriggeredPos, setInterceptTriggeredPos] = useState<string | null>(null);
@@ -344,7 +352,7 @@ export const WorldMap: React.FC<WorldMapProps> = ({
 
     // Check Entity Collision after movement
     useEffect(() => {
-        if (onEntityTrigger && !isCombatModalOpen) {
+        if (onEntityTrigger && !isCombatModalOpen && !pendingChestEntity) {
             const allEntities = dbEntities.filter(e => e.is_active !== false && e.type !== 'personal');
 
             // 1. Proactive Interception: Check for monsters in adjacent hexes (dist === 1)
@@ -478,6 +486,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 const hasLantern = userData.GameInventory?.some(i => i.id === 'i2') ?? false;
                 const range = hasLantern ? 3 : 2;
                 onShowMessage(`濃霧籠罩！${range} 格外的心魔數值無法辨識${hasLantern ? '（火眼金睛擴展至 3 格）' : ''}。`, 'info');
+                // 記錄迷霧陷阱觸發日期（fog_survivor 成就：觸發後當日仍擊殺怪物）
+                recordFogTrap(userData.UserID).catch(() => {});
             }
             // 熔岩流 (Lava Flow): 回合結束扣 5% MaxHP。清涼心 Buff (q1/q1_dawn/q2) 免疫
             if (currentHex?.terrainId === 'lava') {
@@ -774,6 +784,12 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                                 // Impassable terrain: stop at previous step (孫悟空可穿越黑曜石，但不能以黑曜石為終點)
                                 const stepHex = fullGrid.find(h => h.q === step.q && h.r === step.r);
                                 const isLastStep = i === path.length - 1;
+                                // 孫悟空穿越黑曜石計數（非終點格才算穿越）
+                                if (stepHex?.terrainId === 'obsidian' && userData.Role === '孫悟空' && !isLastStep) {
+                                    recordObsidianPassage(userData.UserID).then(({ newMapAchievements }) => {
+                                        if (newMapAchievements?.length) onNewAchievements?.(newMapAchievements);
+                                    }).catch(() => {});
+                                }
                                 if (isHexImpassable(stepHex?.terrainId, isLastStep)) {
                                     const prevStep = path[i - 1];
                                     actualTargetQ = prevStep.q;
@@ -998,6 +1014,16 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     <div className="p-2 bg-emerald-600 rounded-xl text-white shadow-lg border border-emerald-400/20"><MapIcon size={16} /></div>
                 </div>
                 <div className="flex gap-1.5 md:gap-2">
+                    <button aria-label="地圖成就" onClick={() => setIsMapAchievementsOpen(true)} className="flex items-center justify-center p-2 md:p-3 bg-amber-600/20 text-amber-400 hover:bg-amber-600 hover:text-white rounded-xl md:rounded-2xl transition-all border border-amber-500/20 active:scale-95 shadow-lg relative">
+                        <span className="text-base leading-none">🏆</span>
+                        {(() => {
+                            const unlockedMapCount = userAchievements.filter(a =>
+                                MAP_ACHIEVEMENTS.some(m => m.id === a.achievement_id)
+                            ).length;
+                            const total = MAP_ACHIEVEMENTS.filter(m => !m.roleExclusive || m.roleExclusive === userData.Role).length;
+                            return <span className="absolute -bottom-1 -right-1 text-[9px] font-black bg-slate-900 text-amber-400 rounded-full px-1 border border-amber-500/30 leading-tight">{unlockedMapCount}/{total}</span>;
+                        })()}
+                    </button>
                     <button aria-label="世界全景" onClick={() => setIsOverviewOpen(true)} className="flex items-center justify-center p-2 md:p-3 bg-sky-600/20 text-sky-400 hover:bg-sky-600 hover:text-white rounded-xl md:rounded-2xl transition-all border border-sky-500/20 active:scale-95 shadow-lg">
                         <Globe size={18} />
                     </button>
@@ -1510,6 +1536,10 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                             if (res.isVictory && onEntityTrigger) {
                                 onEntityTrigger(combatTarget);
                             }
+                            // 地圖成就通知
+                            if (res.isVictory && res.newMapAchievements?.length) {
+                                onNewAchievements?.(res.newMapAchievements);
+                            }
                             // E6 死亡懲罰：HP 歸零且無死亡護盾，通知 page.tsx 執行懲罰
                             if (res.newHP === 0 && !res.deathShieldTriggered) {
                                 onPlayerDeath?.();
@@ -1914,6 +1944,60 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                     </div>
                 </div>
             )}
+
+            {/* 地圖成就面板 */}
+            {isMapAchievementsOpen && (() => {
+                const unlockedMap = new Map(userAchievements.map(a => [a.achievement_id, a.unlocked_at]));
+                const achievable = MAP_ACHIEVEMENTS.filter(m => !m.roleExclusive || m.roleExclusive === userData.Role);
+                const unlockedCount = achievable.filter(m => unlockedMap.has(m.id)).length;
+                return (
+                    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setIsMapAchievementsOpen(false)}>
+                        <div className="w-full max-w-lg max-h-[85vh] bg-slate-900 border border-amber-500/30 rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+                            {/* Header */}
+                            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+                                <div>
+                                    <p className="text-xs font-black text-amber-400 uppercase tracking-widest">地圖成就</p>
+                                    <p className="text-lg font-black text-white">{unlockedCount} <span className="text-slate-500 text-sm">/ {achievable.length}</span></p>
+                                </div>
+                                <button onClick={() => setIsMapAchievementsOpen(false)} className="text-slate-400 hover:text-white text-xl leading-none">✕</button>
+                            </div>
+                            {/* Progress bar */}
+                            <div className="px-5 pt-3 shrink-0">
+                                <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${achievable.length ? Math.round(unlockedCount / achievable.length * 100) : 0}%` }} />
+                                </div>
+                            </div>
+                            {/* Grid */}
+                            <div className="overflow-y-auto p-4 grid grid-cols-2 gap-3">
+                                {achievable.map(def => {
+                                    const unlockedAt = unlockedMap.get(def.id);
+                                    const style = RARITY_STYLE[def.rarity];
+                                    if (unlockedAt) {
+                                        return (
+                                            <div key={def.id} className={`p-3 rounded-2xl border-2 ${style.border} ${style.bg} ${style.glow} flex flex-col items-center text-center gap-1`}>
+                                                <AchievementIcon def={def} size="lg" />
+                                                <span className={`font-black text-xs leading-tight ${style.text} mt-1`}>{def.name}</span>
+                                                <div className={`text-[9px] font-bold uppercase tracking-widest ${style.text} opacity-70`}>{style.label}</div>
+                                                <p className="text-[10px] text-slate-300 leading-snug mt-1">{def.description}</p>
+                                                <p className="text-[9px] text-slate-500 mt-auto pt-1">{unlockedAt.slice(0, 10)} 解鎖</p>
+                                            </div>
+                                        );
+                                    }
+                                    return (
+                                        <div key={def.id} className="p-3 rounded-2xl border-2 border-slate-800 bg-slate-900/20 flex flex-col gap-1">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg opacity-50">🔒</span>
+                                                <span className="font-black text-xs text-slate-600">???</span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-600 italic leading-snug">{def.hint}</p>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             <WorldOverview
                 isOpen={isOverviewOpen}
