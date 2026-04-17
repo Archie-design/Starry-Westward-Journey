@@ -15,6 +15,11 @@
       "source": "YouMind-OpenLab/nano-banana-pro-prompts-recommend-skill",
       "sourceType": "github",
       "computedHash": "3efc27f8fa938af3093fef0304edf91f6f3f3f391591da721b6a67b960a39eda"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "computedHash": "ca7b0c0c6e5f2750043f7f0cd72d16ac4e2abc48f9b5500d047a4b77a2506212"
     }
   }
 }

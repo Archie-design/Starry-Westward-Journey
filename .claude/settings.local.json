@@ -68,7 +68,8 @@
       "Bash(grep \"^\\\\| \\\\`` /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
       "Bash(grep -E \"^\\\\| \\\\`[a-z_]+\\\\`\" /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
       "Bash(grep -oE '`[a-z_]+`' /Users/keke/starry-westward-journey/docs/MAP_ACHIEVEMENTS_DESIGN.md)",
-      "Bash(npx skills *)"
+      "Bash(npx skills *)",
+      "Bash(grep -A 3 \"app/page.tsx$\")"
     ]
   }
 }

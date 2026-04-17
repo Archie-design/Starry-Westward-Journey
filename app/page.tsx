@@ -70,6 +70,11 @@ const MessageBox = ({ message, onClose, type = 'info', image }: { message: strin
   </div>
 );
 
+function formatCheckInTime(timestamp: string) {
+  const d = new Date(timestamp);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export default function App() {
   const [view, setView] = useState<'login' | 'register' | 'app' | 'loading' | 'admin' | 'map'>('loading');
   const [isSyncing, setIsSyncing] = useState(false);
@@ -138,11 +143,6 @@ export default function App() {
     ? (gmViewMode === 'all' || gmViewMode === 'commandant')
     : !!userData?.IsCommandant;
 
-  const formatCheckInTime = (timestamp: string) => {
-    const d = new Date(timestamp);
-    return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-  };
-
   const logicalTodayStr = getLogicalDateStr();
   const currentWeeklyMonday = useMemo(() => getWeeklyMonday(), []);
 
@@ -192,6 +192,16 @@ export default function App() {
     if (!userData || userData.Role !== '孫悟空') return false;
     return !logs.some(l => l.QuestID === 'q2' && getLogicalDateStr(l.Timestamp) === logicalTodayStr);
   }, [userData, logs, logicalTodayStr, d7BuffActive]);
+
+  const userInventory = useMemo<string[]>(() => {
+    const inv = userData?.Inventory;
+    return typeof inv === 'string' ? JSON.parse(inv) : (inv || []);
+  }, [userData?.Inventory]);
+
+  const teamInventory = useMemo<string[]>(() => {
+    const inv = teamSettings?.inventory;
+    return typeof inv === 'string' ? JSON.parse(inv) : (inv || []);
+  }, [teamSettings?.inventory]);
 
   // E6 死亡懲罰：GameGold ×3%（最低10）扣除 + 傳送回 (0,0)；d7 梵天庇護期間免除金幣懲罰
   const handlePlayerDeath = async () => {
@@ -1221,9 +1231,9 @@ export default function App() {
   };
 
   const handleLogout = () => {
-    if (userData) localStorage.removeItem(`starry_map_state_${userData.UserID}`);
-    localStorage.removeItem('starry_session_uid');
-    localStorage.removeItem('starry_session_expiry');
+    try { if (userData) localStorage.removeItem(`starry_map_state_${userData.UserID}`); } catch {}
+    try { localStorage.removeItem('starry_session_uid'); } catch {}
+    try { localStorage.removeItem('starry_session_expiry'); } catch {}
     setUserData(null);
     setView('login');
   };
@@ -1319,12 +1329,14 @@ export default function App() {
       }
 
       const savedUid = (() => {
-        const uid = localStorage.getItem('starry_session_uid');
-        const expiry = Number(localStorage.getItem('starry_session_expiry') || 0);
-        if (uid && Date.now() < expiry) return uid;
-        localStorage.removeItem('starry_session_uid');
-        localStorage.removeItem('starry_session_expiry');
-        return null;
+        try {
+          const uid = localStorage.getItem('starry_session_uid');
+          const expiry = Number(localStorage.getItem('starry_session_expiry') || 0);
+          if (uid && Date.now() < expiry) return uid;
+          localStorage.removeItem('starry_session_uid');
+          localStorage.removeItem('starry_session_expiry');
+          return null;
+        } catch { return null; }
       })();
       if (savedUid && !userData) {
         // Phase 1: MapEntities + CharacterStats in parallel (no dependencies between them)
@@ -1455,40 +1467,34 @@ export default function App() {
     }
   }, [activeTab, userData?.UserID]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const GmToolbar = () => {
-    if (!userData?.IsGM) return null;
-    const modes: { label: string; value: GmViewMode }[] = [
-      { label: '全部', value: 'all' },
-      { label: '一般修行者', value: 'player' },
-      { label: '小隊長', value: 'captain' },
-      { label: '大隊長', value: 'commandant' },
-    ];
-    return (
-      <div className="bg-amber-950/80 border-b-2 border-amber-500/60 px-4 py-2 flex items-center gap-3 flex-wrap">
-        <span className="text-amber-400 text-[10px] font-black tracking-widest shrink-0">⚙ GM模式</span>
-        <div className="flex gap-2 flex-wrap">
-          {modes.map(m => (
+  const gmToolbarEl = !userData?.IsGM ? null : (
+    <div className="bg-amber-950/80 border-b-2 border-amber-500/60 px-4 py-2 flex items-center gap-3 flex-wrap">
+      <span className="text-amber-400 text-[10px] font-black tracking-widest shrink-0">⚙ GM模式</span>
+      <div className="flex gap-2 flex-wrap">
+        {(['all', 'player', 'captain', 'commandant'] as GmViewMode[]).map((value) => {
+          const label = value === 'all' ? '全部' : value === 'player' ? '一般修行者' : value === 'captain' ? '小隊長' : '大隊長';
+          return (
             <button
-              key={m.value}
-              onClick={() => setGmViewMode(m.value)}
+              key={value}
+              onClick={() => setGmViewMode(value)}
               className={`px-3 py-1 rounded-xl text-[10px] font-black transition-all ${
-                gmViewMode === m.value
+                gmViewMode === value
                   ? 'bg-amber-500 text-black'
                   : 'bg-slate-800 text-amber-400/70 hover:bg-slate-700'
               }`}
             >
-              {m.label}
+              {label}
             </button>
-          ))}
-        </div>
+          );
+        })}
       </div>
-    );
-  };
+    </div>
+  );
 
-  const HomeView = () => (
+  const homeViewEl = (
     <div className="min-h-screen bg-slate-950 text-slate-200 pb-40 text-center animate-in fade-in">
       <Header userData={userData} onLogout={handleLogout} />
-      <GmToolbar />
+      {gmToolbarEl}
 
       {/* LINE 綁定提示 Banner */}
       {userData && !userData.LineUserId && !lineBannerDismissed && (
@@ -1512,18 +1518,18 @@ export default function App() {
 
       <nav className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur-md flex p-4 gap-2 border-b border-white/5 shadow-xl overflow-x-auto no-scrollbar">
         <button onClick={() => setActiveTab('daily')} aria-current={activeTab === 'daily' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'daily' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Flame size={16} />修行定課</button>
-        <button onClick={handleOpenWeeklyTab} aria-current={activeTab === 'weekly' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'weekly' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Sparkles size={16} />加分副本</button>
-        <button onClick={() => setActiveTab('shop')} aria-current={activeTab === 'shop' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'shop' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Store size={16} />藏寶閣</button>
+        <button onMouseEnter={() => import('@/components/Tabs/WeeklyTopicTab')} onClick={handleOpenWeeklyTab} aria-current={activeTab === 'weekly' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'weekly' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Sparkles size={16} />加分副本</button>
+        <button onMouseEnter={() => import('@/components/Tabs/ShopTab')} onClick={() => setActiveTab('shop')} aria-current={activeTab === 'shop' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'shop' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Store size={16} />藏寶閣</button>
         <button onClick={() => setActiveTab('rank')} aria-current={activeTab === 'rank' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'rank' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Trophy size={16} />修為榜</button>
         <button onClick={() => setActiveTab('stats')} aria-current={activeTab === 'stats' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'stats' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><BarChart3 size={16} />六維與罰金</button>
-        <button onClick={() => setActiveTab('achievements')} aria-current={activeTab === 'achievements' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'achievements' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Medal size={16} />成就</button>
+        <button onMouseEnter={() => import('@/components/Tabs/AchievementsTab')} onClick={() => setActiveTab('achievements')} aria-current={activeTab === 'achievements' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'achievements' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Medal size={16} />成就</button>
         <button onClick={() => setActiveTab('course')} aria-current={activeTab === 'course' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'course' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><CalendarDays size={16} />課程</button>
-        <button onClick={() => setActiveTab('peak')} aria-current={activeTab === 'peak' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'peak' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Mountain size={16} />試煉</button>
+        <button onMouseEnter={() => import('@/components/Tabs/PeakTrialTab')} onClick={() => setActiveTab('peak')} aria-current={activeTab === 'peak' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'peak' ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Mountain size={16} />試煉</button>
         {showCaptainTab && (
-          <button onClick={handleOpenCaptainTab} aria-current={activeTab === 'captain' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'captain' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Compass size={16} />指揮所</button>
+          <button onMouseEnter={() => import('@/components/Tabs/CaptainTab')} onClick={handleOpenCaptainTab} aria-current={activeTab === 'captain' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'captain' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Compass size={16} />指揮所</button>
         )}
         {showCommandantTab && (
-          <button onClick={() => setActiveTab('commandant')} aria-current={activeTab === 'commandant' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'commandant' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Swords size={16} />指揮部</button>
+          <button onMouseEnter={() => import('@/components/Tabs/CommandantTab')} onClick={() => setActiveTab('commandant')} aria-current={activeTab === 'commandant' ? 'page' : undefined} className={`shrink-0 flex flex-col items-center gap-1 px-4 py-3 rounded-2xl text-xs font-black transition-all cursor-pointer ${activeTab === 'commandant' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25' : 'bg-slate-900 text-slate-400 hover:bg-slate-800 hover:text-slate-100'}`}><Swords size={16} />指揮部</button>
         )}
       </nav>
 
@@ -1533,8 +1539,8 @@ export default function App() {
             weeklyQuestId={teamSettings?.mandatory_quest_id}
             logs={logs}
             logicalTodayStr={logicalTodayStr}
-            userInventory={typeof userData?.Inventory === 'string' ? JSON.parse(userData.Inventory) : (userData?.Inventory || [])}
-            teamInventory={typeof teamSettings?.inventory === 'string' ? JSON.parse(teamSettings.inventory) : (teamSettings?.inventory || [])}
+            userInventory={userInventory}
+            teamInventory={teamInventory}
             onCheckIn={handleCheckInAction}
             onUndo={setUndoTarget}
             formatCheckInTime={formatCheckInTime}
@@ -1547,8 +1553,8 @@ export default function App() {
             currentWeeklyMonday={currentWeeklyMonday}
             isTopicDone={isTopicDone}
             temporaryQuests={temporaryQuests.filter(t => t.active)}
-            userInventory={typeof userData?.Inventory === 'string' ? JSON.parse(userData.Inventory) : (userData?.Inventory || [])}
-            teamInventory={typeof teamSettings?.inventory === 'string' ? JSON.parse(teamSettings.inventory) : (teamSettings?.inventory || [])}
+            userInventory={userInventory}
+            teamInventory={teamInventory}
             w4Applications={w4Applications}
             weeklyReview={weeklyReview}
             isLoadingReview={isLoadingReview}
@@ -1702,7 +1708,7 @@ export default function App() {
         />
       )}
 
-      {view === 'app' && <HomeView />}
+      {view === 'app' && homeViewEl}
       {view === 'map' && userData && (
         <div className="fixed inset-0 z-10 flex flex-col">
           {/* 冒險狀態列：詛咒/天賦效果 + 黃金骰子 */}
