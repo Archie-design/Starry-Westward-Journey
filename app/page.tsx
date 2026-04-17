@@ -1027,13 +1027,18 @@ export default function App() {
           ? { text: successText, type: 'info' }
           : { text: successText, type: 'success' }
         );
-        if (res.newAchievements && res.newAchievements.length > 0) {
-          const newDefs = res.newAchievements
-            .map((id: string) => ACHIEVEMENT_MAP.get(id))
-            .filter(Boolean) as AchievementDef[];
-          if (newDefs.length > 0) setAchievementQueue(prev => [...prev, ...newDefs]);
-          getUserAchievements(userData.UserID).then(setUserAchievements);
-        }
+        // Poll for newly unlocked achievements after server-side check completes
+        const prevIds = new Set(userAchievements.map(a => a.achievement_id));
+        setTimeout(() => {
+          getUserAchievements(userData.UserID).then(latest => {
+            const newDefs = latest
+              .filter(a => !prevIds.has(a.achievement_id))
+              .map(a => ACHIEVEMENT_MAP.get(a.achievement_id))
+              .filter(Boolean) as AchievementDef[];
+            if (newDefs.length > 0) setAchievementQueue(prev => [...prev, ...newDefs]);
+            setUserAchievements(latest);
+          }).catch(() => {});
+        }, 2500);
       } else {
         // Sync logs so client state reflects server state (e.g. quest already done)
         const { data: syncedLogs } = await supabase
@@ -1321,37 +1326,43 @@ export default function App() {
         return null;
       })();
       if (savedUid && !userData) {
-        // Fetch map entities only once on initial login (not on every userData change)
-        try {
-          const { data: pEntities, error: entErr } = await supabase.from('MapEntities').select('*').eq('is_active', true);
-          if (pEntities && !entErr) {
-            setMapEntities(pEntities);
-          }
-        } catch (e) {
-          console.error("Error fetching map entities:", e);
+        // Phase 1: MapEntities + CharacterStats in parallel (no dependencies between them)
+        const [entitiesResult, statsResult] = await Promise.all([
+          supabase.from('MapEntities').select('*').eq('is_active', true),
+          supabase.from('CharacterStats').select('*').eq('UserID', savedUid).single(),
+        ]);
+
+        if (entitiesResult.data && !entitiesResult.error) {
+          setMapEntities(entitiesResult.data);
         }
-        const { data: stats, error } = await supabase.from('CharacterStats').select('*').eq('UserID', savedUid).single();
+
+        const { data: stats, error } = statsResult;
         if (stats && !error) {
-          const { data: userLogs } = await supabase.from('DailyLogs').select('*').eq('UserID', stats.UserID);
-          const logsArray = (userLogs as DailyLog[]) || [];
+          // Phase 2: DailyLogs + team data in parallel (all depend only on stats)
+          const teamParallel: Promise<void>[] = [];
+          let tSettingsResult: any = null;
+          let teamCountResult: number | null = null;
 
-          // Fetch TeamSettings if User belongs to a Team
+          const [logsResult] = await Promise.all([
+            supabase.from('DailyLogs').select('*').eq('UserID', stats.UserID),
+            ...(stats.TeamName ? [
+              supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single()
+                .then(r => { tSettingsResult = r.data; if (r.data) setTeamSettings(r.data); }),
+              supabase.from('CharacterStats').select('*', { count: 'exact', head: true }).eq('TeamName', stats.TeamName)
+                .then(r => { teamCountResult = r.count; setTeamMemberCount(r.count || 1); }),
+              fetchTeammates(stats.TeamName, stats.UserID),
+            ] : []),
+          ]);
+
+          const logsArray = (logsResult.data as DailyLog[]) || [];
+
+          // Auto-draw (conditional, must run after fetchTeammates)
           if (stats.TeamName) {
-            const { data: tSettings } = await supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single();
-            if (tSettings) setTeamSettings(tSettings);
-            const { count } = await supabase.from('CharacterStats').select('*', { count: 'exact', head: true }).eq('TeamName', stats.TeamName);
-            setTeamMemberCount(count || 1);
-            await fetchTeammates(stats.TeamName, stats.UserID);
-
-            // Auto-draw fallback: trigger for ALL squads every Monday after noon.
-            // Do NOT gate on teamAlreadyDrew — if this squad drew manually but others didn't,
-            // the fallback would skip those squads. autoDrawAllSquads() already skips squads that drew.
             const nowTaiwan = new Date(Date.now() + 8 * 3600 * 1000);
             const isMondayAfterNoon = nowTaiwan.getUTCDay() === 1 && nowTaiwan.getUTCHours() >= 12;
             if (isMondayAfterNoon) {
               const drawRes = await autoDrawAllSquads();
               if (drawRes.success && (drawRes.drawnCount ?? 0) > 0) {
-                // Refresh teamSettings so UI reflects the newly drawn quest
                 const { data: freshTS } = await supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single();
                 if (freshTS) setTeamSettings(freshTS);
               }
@@ -1381,25 +1392,23 @@ export default function App() {
           if (savedMapState?.stepsRemaining > 0) setStepsRemaining(savedMapState.stepsRemaining);
           setLogs(logsArray);
 
-          // Fetch w4 applications for this user
-          const w4Res = await getW4Applications({ userId: stats.UserID });
-          if (w4Res.success) setW4Applications(w4Res.applications);
-
-          // If squad leader, fetch pending apps for review + member stats
+          // Phase 3: role-based queries in parallel
+          const phase3: Promise<void>[] = [
+            getW4Applications({ userId: stats.UserID }).then(r => { if (r.success) setW4Applications(r.applications); }),
+          ];
           if (stats.IsCaptain && stats.TeamName) {
-            const pendingRes = await getW4Applications({ squadName: stats.TeamName, status: 'pending' });
-            if (pendingRes.success) setPendingW4Apps(pendingRes.applications);
-            const membersRes = await getSquadMembersStats(stats.UserID);
-            if (membersRes.success && membersRes.members) setSquadMembers(membersRes.members);
+            phase3.push(
+              getW4Applications({ squadName: stats.TeamName, status: 'pending' }).then(r => { if (r.success) setPendingW4Apps(r.applications); }),
+              getSquadMembersStats(stats.UserID).then(r => { if (r.success && r.members) setSquadMembers(r.members); }),
+            );
           }
-
-          // If commandant, fetch squad_approved apps for final review + battalion stats
           if (stats.IsCommandant) {
-            const commandantRes = await getW4Applications({ status: 'squad_approved' });
-            if (commandantRes.success) setSquadApprovedW4Apps(commandantRes.applications);
-            const battalionRes = await getBattalionMembersStats(stats.UserID);
-            if (battalionRes.success && battalionRes.members) setBattalionMembers(battalionRes.members);
+            phase3.push(
+              getW4Applications({ status: 'squad_approved' }).then(r => { if (r.success) setSquadApprovedW4Apps(r.applications); }),
+              getBattalionMembersStats(stats.UserID).then(r => { if (r.success && r.members) setBattalionMembers(r.members); }),
+            );
           }
+          await Promise.all(phase3);
 
           setView('app');
 

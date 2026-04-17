@@ -45,11 +45,8 @@ export async function processCheckInTransaction(
         return { success: false, error: result.error };
     }
 
-    // Await achievement check for the current user so notification can fire immediately
-    let newAchievements: string[] = [];
-    try {
-        newAchievements = await checkAndUnlockAchievements(userId, questId);
-    } catch (_) {}
+    // Fire-and-forget: achievement check runs in background, client polls for new ones after success
+    checkAndUnlockAchievements(userId, questId).catch(() => {});
 
     // Background: retroactive team achievement checks (fire and forget — no notification needed for others)
     (async () => {
@@ -75,9 +72,7 @@ export async function processCheckInTransaction(
                         .gte('Timestamp', todayCalendar);
 
                     const punchedIds = [...new Set((punchLogs ?? []).map((r: any) => r.UserID as string))];
-                    for (const id of punchedIds) {
-                        checkAndUnlockAchievements(id, questId).catch(() => {});
-                    }
+                    await Promise.all(punchedIds.map(id => checkAndUnlockAchievements(id, questId).catch(() => {})));
                 }
             }
 
@@ -98,9 +93,11 @@ export async function processCheckInTransaction(
 
                     const activeIds = new Set((activeLogs ?? []).map((r: any) => r.UserID as string));
                     if (allIds.every((id: string) => activeIds.has(id))) {
-                        for (const id of allIds) {
-                            if (id !== userId) checkAndUnlockAchievements(id, questId).catch(() => {});
-                        }
+                        await Promise.all(
+                            allIds
+                                .filter((id: string) => id !== userId)
+                                .map((id: string) => checkAndUnlockAchievements(id, questId).catch(() => {}))
+                        );
                     }
                 }
             }
@@ -108,10 +105,9 @@ export async function processCheckInTransaction(
     })();
 
     return {
-        success:         true,
-        rewardCapped:    result.rewardCapped ?? false,
-        user:            result.user,
-        newAchievements,
+        success:      true,
+        rewardCapped: result.rewardCapped ?? false,
+        user:         result.user,
     };
 }
 

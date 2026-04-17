@@ -70,6 +70,9 @@ export async function checkAndUnlockAchievements(
     const supabase = getServiceClient();
     try {
         // 1. Fetch user stats, all logs, and existing achievements in parallel via Supabase SDK
+        const logsSince = new Date();
+        logsSince.setDate(logsSince.getDate() - 90);
+
         const [userRes, logsRes, existingRes] = await Promise.all([
             supabase
                 .from('CharacterStats')
@@ -80,6 +83,7 @@ export async function checkAndUnlockAchievements(
                 .from('DailyLogs')
                 .select('QuestID,Timestamp')
                 .eq('UserID', userId)
+                .gte('Timestamp', logsSince.toISOString())
                 .order('Timestamp', { ascending: true }),
             supabase
                 .from('Achievements')
