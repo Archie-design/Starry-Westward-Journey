@@ -46,7 +46,9 @@ export async function processCheckInTransaction(
     }
 
     // Fire-and-forget: achievement check runs in background, client polls for new ones after success
-    checkAndUnlockAchievements(userId, questId).catch(() => {});
+    checkAndUnlockAchievements(userId, questId).catch(err =>
+        console.error('[achievements] background check failed:', err)
+    );
 
     // Background: retroactive team achievement checks (fire and forget — no notification needed for others)
     (async () => {

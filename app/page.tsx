@@ -1029,8 +1029,9 @@ export default function App() {
         );
         // Poll for newly unlocked achievements after server-side check completes
         const prevIds = new Set(userAchievements.map(a => a.achievement_id));
+        const uid = userData.UserID;
         setTimeout(() => {
-          getUserAchievements(userData.UserID).then(latest => {
+          getUserAchievements(uid).then(latest => {
             const newDefs = latest
               .filter(a => !prevIds.has(a.achievement_id))
               .map(a => ACHIEVEMENT_MAP.get(a.achievement_id))
@@ -1038,7 +1039,7 @@ export default function App() {
             if (newDefs.length > 0) setAchievementQueue(prev => [...prev, ...newDefs]);
             setUserAchievements(latest);
           }).catch(() => {});
-        }, 2500);
+        }, 3500);
       } else {
         // Sync logs so client state reflects server state (e.g. quest already done)
         const { data: syncedLogs } = await supabase
@@ -1339,18 +1340,14 @@ export default function App() {
         const { data: stats, error } = statsResult;
         if (stats && !error) {
           // Phase 2: DailyLogs + team data in parallel (all depend only on stats)
-          const teamParallel: Promise<void>[] = [];
-          let tSettingsResult: any = null;
-          let teamCountResult: number | null = null;
-
           const [logsResult] = await Promise.all([
             supabase.from('DailyLogs').select('*').eq('UserID', stats.UserID),
             ...(stats.TeamName ? [
               supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single()
-                .then(r => { tSettingsResult = r.data; if (r.data) setTeamSettings(r.data); }),
+                .then(r => { if (r.data) setTeamSettings(r.data); }).catch(() => {}),
               supabase.from('CharacterStats').select('*', { count: 'exact', head: true }).eq('TeamName', stats.TeamName)
-                .then(r => { teamCountResult = r.count; setTeamMemberCount(r.count || 1); }),
-              fetchTeammates(stats.TeamName, stats.UserID),
+                .then(r => { setTeamMemberCount(r.count || 1); }).catch(() => {}),
+              fetchTeammates(stats.TeamName, stats.UserID).catch(() => {}),
             ] : []),
           ]);
 
