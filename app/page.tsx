@@ -1355,9 +1355,9 @@ export default function App() {
           const [logsResult] = await Promise.all([
             supabase.from('DailyLogs').select('*').eq('UserID', stats.UserID),
             ...(stats.TeamName ? [
-              supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single()
+              Promise.resolve(supabase.from('TeamSettings').select('*').eq('team_name', stats.TeamName).single())
                 .then(r => { if (r.data) setTeamSettings(r.data); }).catch(() => {}),
-              supabase.from('CharacterStats').select('*', { count: 'exact', head: true }).eq('TeamName', stats.TeamName)
+              Promise.resolve(supabase.from('CharacterStats').select('*', { count: 'exact', head: true }).eq('TeamName', stats.TeamName))
                 .then(r => { setTeamMemberCount(r.count || 1); }).catch(() => {}),
               fetchTeammates(stats.TeamName, stats.UserID).catch(() => {}),
             ] : []),
