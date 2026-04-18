@@ -99,10 +99,16 @@ Schema 管理：`supabase/migrations/`（15+ migration 檔案）
 | 變數 | 用途 |
 |------|------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase 專案 URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 匿名金鑰 |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服務角色金鑰 |
-| `DATABASE_URL` | PostgreSQL 直連字串 |
-| `GEMINI_API_KEY` | Google Gemini API 金鑰 |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase 匿名金鑰（前端可見） |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase 服務角色金鑰（繞過 RLS，僅 Server） |
+| `DATABASE_URL` | PostgreSQL 直連字串（pg Pool 用） |
+| `GEMINI_API_KEY` | Google Gemini API 金鑰（AI 評語 / 隊長簡報） |
+| `LINE_CHANNEL_ID` | LINE Login 應用程式 ID |
+| `LINE_CHANNEL_SECRET` | LINE Login / Webhook 簽名驗證 |
+| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API 發送訊息用 |
+| `CRON_SECRET` | Vercel Cron 端點驗證（`app/api/cron/*`） |
+
+> **完整 `.env.local` 範本**請參照 [ARCHITECTURE.md §10](./ARCHITECTURE.md#10-部署與環境)。
 
 ## 架構特點
 

@@ -38,8 +38,9 @@
 ADVENTURE_COST   = 1           // 移動每格AP消耗
 MIMIC_CHANCE     = 0.2         // 偽裝寶箱觸發率 (20%)
 每日定課上限      = 3           // q 開頭任務每日上限
-BASE_START_DATE  = "2026-05-31"
-END_DATE         = "2026-07-25"
+BASE_START_DATE  = "2026-02-01"   // 系統活動開始（constants.tsx）
+END_DATE         = "2026-06-28"   // 系統活動結束（constants.tsx）
+// 注意：親證班實體課程日期為 2026-05-31 ~ 2026-07-25，與上方系統日期不同
 ```
 
 ---
@@ -101,4 +102,14 @@ END_DATE         = "2026-07-25"
 | 玩家→玩家 | `donateGoldenDice` | GoldenDice |
 | 玩家→部隊 | `transferGoldenDiceToTeam` | GoldenDice |
 | 玩家→部隊 | `transferCoinsToTeam` | Coins |
+
+---
+
+## 成就系統
+
+| 分類 | 數量 | 設計文件 |
+|------|------|---------|
+| 定課 / 協作成就 | 43 個 | [ACHIEVEMENT_DESIGN.md](./ACHIEVEMENT_DESIGN.md) |
+| 地圖探索成就 | 40 個 | [MAP_ACHIEVEMENTS_DESIGN.md](./MAP_ACHIEVEMENTS_DESIGN.md) |
+| **合計** | **83 個** | — |
 

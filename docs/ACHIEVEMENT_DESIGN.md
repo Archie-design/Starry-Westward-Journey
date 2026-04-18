@@ -238,3 +238,11 @@ export interface AchievementRecord {
 7. 隊友同日打拳 → 觸發「同心齊拳」
 8. 條件邏輯不出現在前端 bundle
 9. 手機版觸控友好，卡片 ≥ 44px 高度
+
+---
+
+## 相關文件
+
+- **地圖成就（40 個）**：另見 [MAP_ACHIEVEMENTS_DESIGN.md](./MAP_ACHIEVEMENTS_DESIGN.md)。地圖成就由玩家在六角地圖上的移動、戰鬥、探索行為觸發，與本文的定課/協作成就完全獨立。
+- **系統總成就數**：定課/協作 43 個 + 地圖 40 個 = **共 83 個**。`AchievementsTab` 同時展示兩類，玩家可按稀有度篩選。
+- **架構說明**：見 [ARCHITECTURE.md §6.8](./ARCHITECTURE.md)。
