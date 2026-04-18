@@ -1,13 +1,10 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { PeakTrial, PeakTrialRegistration, PeakTrialReview } from '@/types';
 
-const _url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const _key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
 export async function listPeakTrials() {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { data, error } = await supabase
         .from('PeakTrialsWithCount')
         .select('*')
@@ -18,7 +15,7 @@ export async function listPeakTrials() {
 }
 
 export async function upsertPeakTrial(trial: Partial<PeakTrial> & { title: string }) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     const fields = {
         title: trial.title,
@@ -44,21 +41,21 @@ export async function upsertPeakTrial(trial: Partial<PeakTrial> & { title: strin
 }
 
 export async function deletePeakTrial(id: string) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('PeakTrials').delete().eq('id', id);
     if (error) return { success: false, error: error.message };
     return { success: true };
 }
 
 export async function togglePeakTrialActive(id: string, is_active: boolean) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('PeakTrials').update({ is_active }).eq('id', id);
     if (error) return { success: false, error: error.message };
     return { success: true };
 }
 
 export async function listPeakTrialRegistrations(trialId: string) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { data: regs, error } = await supabase
         .from('PeakTrialRegistrations')
         .select('*')
@@ -89,7 +86,7 @@ export async function listPeakTrialRegistrations(trialId: string) {
 }
 
 export async function listPeakTrialReviews(trialId: string) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     // Get all registrations for this trial
     const { data: regs } = await supabase
@@ -133,7 +130,7 @@ export async function reviewPeakTrialSubmission(
     reviewedBy: string,
     notes?: string
 ) {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { error } = await supabase
         .from('PeakTrialReviews')
         .update({

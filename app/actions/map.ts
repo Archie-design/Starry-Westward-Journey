@@ -1,18 +1,15 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { CHEST_LOOT_TABLE, MIMIC_CHANCE } from "@/lib/constants";
 import { checkMapAchievements } from "@/app/actions/achievements";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 /**
  * 處理開箱子邏輯
  * 包含寶箱怪檢定與掉落物抽取
  */
 export async function handleChestOpen(userId: string, entityId: string, skipMimic = false, forceMimic = false) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     // 1. 讀取用戶資料
     const { data: user, error: userErr } = await supabase
@@ -131,7 +128,7 @@ export async function handleChestOpen(userId: string, entityId: string, skipMimi
 export async function applyTrapDamage(trapEntityId: string, monsterEntityId: string): Promise<{
     success: boolean; killed: boolean; message: string;
 }> {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     // 讀取陷阱資料（含 TTL 檢查）
     const { data: trap } = await supabase
@@ -181,7 +178,7 @@ export async function applyTrapDamage(trapEntityId: string, monsterEntityId: str
 export async function handleMimicTerrain(userId: string): Promise<{
     success: boolean; gained: number; message: string; newMapAchievements?: string[];
 }> {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
     const { data: user } = await supabase
         .from('CharacterStats')
         .select('EnergyDice, Savvy')

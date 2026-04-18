@@ -1,14 +1,11 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { DAILY_QUEST_CONFIG } from "@/lib/constants";
 import { logAdminAction } from "@/app/actions/admin";
 import { SquadMemberStats } from "@/types";
 import { checkMapAchievements } from "@/app/actions/achievements";
 import { getLogicalDateStr } from "@/lib/utils/time";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 const ALL_QUEST_IDS = DAILY_QUEST_CONFIG.map(q => q.id).filter(id => id.startsWith('q'));
 
@@ -28,7 +25,7 @@ function getCurrentWeekMondayStr(): string {
  * - 已抽過的不重複，全部抽完後重置循環
  */
 export async function drawWeeklyQuestForSquad(squadName: string, captainUserId: string) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
     const weekMondayStr = getCurrentWeekMondayStr();
 
     // Get or create TeamSettings row (may be missing if squad was set up via roster import)
@@ -78,7 +75,7 @@ export async function drawWeeklyQuestForSquad(squadName: string, captainUserId: 
  * 管理員觸發：為本週尚未抽籤的所有小隊自動抽選推薦定課
  */
 export async function autoDrawAllSquads(actorName = 'system') {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
     const weekMondayStr = getCurrentWeekMondayStr();
 
     // Collect all distinct squad names from CharacterStats and ensure TeamSettings rows exist
@@ -142,7 +139,7 @@ export async function autoDrawAllSquads(actorName = 'system') {
  * 允許同團隊或同小隊成員互相贈送能源骰子
  */
 export async function donateDice(fromUserId: string, toUserId: string, amount: number) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     if (amount <= 0) throw new Error("無效的捐贈數量");
 
@@ -206,7 +203,7 @@ export async function donateDice(fromUserId: string, toUserId: string, amount: n
  * 實現「金骰子捐贈」功能
  */
 export async function donateGoldenDice(fromUserId: string, toUserId: string, amount: number) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     if (amount <= 0) throw new Error("無效的捐贈數量");
 
@@ -247,7 +244,7 @@ export async function donateGoldenDice(fromUserId: string, toUserId: string, amo
  * 小隊長：取得自己小隊所有成員的修為狀態
  */
 export async function getSquadMembersStats(captainUserId: string): Promise<{ success: boolean; members?: SquadMemberStats[]; error?: string }> {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     const { data: captain, error: capErr } = await supabase
         .from('CharacterStats')
@@ -302,7 +299,7 @@ export async function getSquadMembersStats(captainUserId: string): Promise<{ suc
  * 大隊長：取得旗下所有小隊成員的修為狀態，以 TeamName 為 key 分組
  */
 export async function getBattalionMembersStats(commandantUserId: string): Promise<{ success: boolean; members?: Record<string, SquadMemberStats[]>; error?: string }> {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     const { data: cmd, error: cmdErr } = await supabase
         .from('CharacterStats')

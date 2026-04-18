@@ -1,15 +1,8 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { getLogicalDateStr } from '@/lib/utils/time';
 import type { AchievementRecord } from '@/types';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-function getServiceClient() {
-    return createClient(supabaseUrl, supabaseKey);
-}
 
 // ─── Role → cureTaskId mapping (server-only, mirrors ROLE_CURE_MAP in constants) ───
 const ROLE_CURE_TASK: Record<string, string> = {
@@ -67,7 +60,7 @@ export async function checkAndUnlockAchievements(
     userId: string,
     _newQuestId: string,
 ): Promise<string[]> {
-    const supabase = getServiceClient();
+    const supabase = supabaseAdmin;
     try {
         // 1. Fetch user stats, all logs, and existing achievements in parallel via Supabase SDK
         const logsSince = new Date();
@@ -351,7 +344,7 @@ export async function checkMapAchievements(
     userId: string,
     ctx: MapAchievementContext,
 ): Promise<string[]> {
-    const supabase = getServiceClient();
+    const supabase = supabaseAdmin;
     try {
         const [userRes, existingRes] = await Promise.all([
             supabase
@@ -494,7 +487,7 @@ export async function checkMapAchievements(
 /** Fetch all achievements unlocked by the given user */
 export async function getUserAchievements(userId: string): Promise<AchievementRecord[]> {
     try {
-        const supabase = getServiceClient();
+        const supabase = supabaseAdmin;
         const { data, error } = await supabase
             .from('Achievements')
             .select('achievement_id, unlocked_at')

@@ -1,16 +1,13 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import type { PeakTrial, PeakTrialRegistration } from '@/types';
-
-const _url = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const _key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 export async function getPeakTrialsForPlayer(userId: string): Promise<{
     trials: PeakTrial[];
     myRegistrations: PeakTrialRegistration[];
 }> {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     const [trialsRes, regsRes] = await Promise.all([
         supabase
@@ -37,7 +34,7 @@ export async function registerForPeakTrial(
     squadName?: string,
     battalionName?: string,
 ): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     // Check capacity
     const { data: trial } = await supabase
@@ -71,7 +68,7 @@ export async function cancelPeakTrialRegistration(
     trialId: string,
     userId: string,
 ): Promise<{ success: boolean; error?: string }> {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     const { error } = await supabase
         .from('PeakTrialRegistrations')
@@ -94,7 +91,7 @@ export async function markPeakTrialAttendance(registrationId: string): Promise<{
     trialTitle?: string;
     error?: string;
 }> {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
 
     // 查詢報名記錄
     const { data: reg, error: fetchErr } = await supabase
@@ -142,7 +139,7 @@ export async function markPeakTrialAttendance(registrationId: string): Promise<{
  * 取得某場試煉的出席名單（大隊長掃碼介面使用）
  */
 export async function getPeakTrialAttendanceList(trialId: string): Promise<PeakTrialRegistration[]> {
-    const supabase = createClient(_url, _key);
+    const supabase = supabaseAdmin;
     const { data } = await supabase
         .from('PeakTrialRegistrations')
         .select('*')

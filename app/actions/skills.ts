@@ -1,10 +1,6 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseActionKey);
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin';
 
 /**
  * 筋斗雲（孫悟空 Streak ≥ 3）：記錄今日冷卻

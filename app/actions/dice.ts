@@ -1,9 +1,6 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
 /**
  * 捐獻黃金骰子至部隊
@@ -11,7 +8,7 @@ const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.N
 export async function transferGoldenDiceToTeam(userId: string, teamName: string, amount: number) {
     if (amount <= 0) return { success: false, error: "捐獻數量必須大於 0" };
     
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
     
     const { data, error } = await supabase.rpc('transfer_golden_dice', {
         p_from_user: userId,
@@ -27,7 +24,7 @@ export async function transferGoldenDiceToTeam(userId: string, teamName: string,
  * 兌換：消耗 1 黃金骰子，獲得 3 能源骰子（上限 100）
  */
 export async function exchangeGoldenDiceToEnergy(userId: string) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.rpc('exchange_golden_to_energy_dice', {
         p_user_id: userId,
     });
@@ -40,7 +37,7 @@ export async function exchangeGoldenDiceToEnergy(userId: string) {
  * 消耗 1 枚黃金骰子，設定 IsBlessed = true，下次 handleChestOpen 保證最高獎勵且無視寶箱怪
  */
 export async function blessChestWithGoldenDice(userId: string) {
-    const supabase = createClient(supabaseUrl, supabaseActionKey);
+    const supabase = supabaseAdmin;
 
     const { data: user, error: userErr } = await supabase
         .from('CharacterStats')

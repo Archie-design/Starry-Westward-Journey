@@ -28,7 +28,7 @@
 
 ### 1.1 業務定位
 
-**大無限開運西遊** 是「2026 大無限開運親證班」線下共修課程的**遊戲化打卡後台**。學員（同時也是西遊角色：孫悟空／豬八戒／沙悟淨／白龍馬／唐三藏）每天打卡五件日課、每週參加特殊副本、在六角地圖上移動、與「心魔」戰鬥、購買法寶、向隊友捐骰。系統以「共修紀律」為內核，以「RPG 進度」為外殼，設計原則在 [docs/GAME_DESIGN.md](./GAME_DESIGN.md) 與 [docs/MAP_DESIGN.md](./MAP_DESIGN.md) 中為權威來源。
+**大無限開運西遊** 是「2026 大無限開運親證班」線下共修課程的**遊戲化打卡後台**。學員（同時也是西遊角色：孫悟空／豬八戒／沙悟淨／白龍馬／唐三藏）每天打卡定課、每週參加特殊副本、在六角地圖上移動、與「心魔」戰鬥、購買法寶、向隊友捐骰。系統以「共修紀律」為內核，以「RPG 進度」為外殼，設計原則在 [docs/GAME_DESIGN.md](./GAME_DESIGN.md) 與 [docs/MAP_DESIGN.md](./MAP_DESIGN.md) 中為權威來源。
 
 ### 1.2 技術棧
 
@@ -452,8 +452,8 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant M as 學員
-    participant C as 隊長（Captain）
-    participant A as 營長（Commandant）
+    participant C as 小隊長（Captain）
+    participant A as 大隊長（Commandant）
     participant DB as Supabase
 
     M->>DB: submitW4Application<br/>status=pending, quest_id=w4|YYYY-MM-DD|target
@@ -743,25 +743,27 @@ export const ADMIN_PASSWORD = "123";
 2. 在 [app/page.tsx:226](../app/page.tsx#L226) 改為純粹依賴 `userData.IsGM`（已透過 LINE OAuth 驗證身份）。
 3. 若仍需「管理員模式」多一層確認，改為 server action 端的 TOTP 驗證或 LINE 通知內的臨時一次性密碼。
 
-#### 8.1.2 SERVICE_ROLE_KEY 靜默降級
+#### 8.1.2 SERVICE_ROLE_KEY 靜默降級 ✅ 已修復
 
-**位置**：[app/actions/items.ts:7](../app/actions/items.ts#L7)、[app/actions/team.ts:11](../app/actions/team.ts#L11)、[app/actions/admin.ts:9](../app/actions/admin.ts#L9)、`achievements.ts`、`player.ts`、`peak_trial.ts`
+> **已於 2026-04-18 修復**：建立 [lib/supabaseAdmin.ts](../lib/supabaseAdmin.ts) 統一 admin client，Key 缺失時立即拋錯。原 13 個 action 檔的 inline fallback 已全數移除。
 
-**模式**：
-```ts
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-         || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-         || "";
-```
+~~**位置**：`items.ts`、`team.ts`、`admin.ts`、`achievements.ts`、`player.ts`、`peak_trial.ts` 等 13 個 server action~~
 
-**風險**：當環境變數遺失或拼錯，程式不會噴錯，而是降級到 anon key。雖然 RLS 會擋大部分寫入，但錯誤訊息晦澀難查，且部分表 RLS 未鎖寫入時會成為漏洞。
-
-**修補**：
+**已修復模式**（[lib/supabaseAdmin.ts](../lib/supabaseAdmin.ts)）：
 ```ts
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!key) throw new Error('SUPABASE_SERVICE_ROLE_KEY missing');
+if (!key) throw new Error('[supabaseAdmin] 缺少 SUPABASE_SERVICE_ROLE_KEY');
+export const supabaseAdmin = createClient(url, key);
 ```
-並在 `next.config.js` 或 `vercel.ts` 加入啟動時驗證（fail-fast）。
+
+所有 server action 改為：
+```ts
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
+// 或
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin';
+```
+
+**風險說明（已消除）**：原先當環境變數遺失或拼錯，程式不噴錯而靜默降級到 anon key，造成「使用者感覺成功但資料沒存」的詭異 bug。現在啟動時 fail-fast。
 
 #### 8.1.3 密碼驗證早於權限驗證
 
@@ -1014,7 +1016,7 @@ checkAndUnlockAchievements(userId, questId).catch(err => console.error(...))
 
 **要點**：
 1. 所有寫入路徑都必須走 **server action + service_role key**；客戶端直接用 anon key 寫不進來（RLS 擋）。
-2. 8.1.2 節的 SERVICE_ROLE_KEY 靜默降級若發生，**寫入會靜默失敗**但讀取仍正常——這會造成「使用者感覺成功但資料沒存」的詭異 bug。修復優先度高。
+2. ~~8.1.2 節的 SERVICE_ROLE_KEY 靜默降級~~（**已修復**，見 [lib/supabaseAdmin.ts](../lib/supabaseAdmin.ts)）：啟動時 fail-fast，不再靜默降級。
 3. 新增表時請**預設拒絕 anon 寫入**，若確定無敏感欄位再選擇性開放 SELECT。
 
 ---

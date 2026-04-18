@@ -1,11 +1,7 @@
 "use server";
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin';
 import { IN_GAME_ITEMS, ROLE_CURE_MAP } from '@/lib/constants';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseActionKey);
 
 // 六維屬性列表
 const SIX_STATS = ['Spirit', 'Physique', 'Charisma', 'Savvy', 'Luck', 'Potential'] as const;

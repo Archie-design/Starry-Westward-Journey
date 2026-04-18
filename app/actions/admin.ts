@@ -1,16 +1,13 @@
 'use server';
 
 import { connectDb } from '@/lib/db';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { TERRAIN_TYPES, DEFAULT_CONFIG, ZONES } from '@/lib/constants';
 import { getHexRegion } from '@/lib/utils/hex';
 
-const _supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const _supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
 // ── GM 身份驗證 ────────────────────────────────────────
 export async function getGMUserByUID(uid: string): Promise<{ success: boolean; name?: string; error?: string }> {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { data } = await supabase
         .from('CharacterStats')
         .select('Name, IsGM')
@@ -31,7 +28,7 @@ export async function logAdminAction(
     result: 'success' | 'error' = 'success'
 ) {
     try {
-        const supabase = createClient(_supabaseUrl, _supabaseKey);
+        const supabase = supabaseAdmin;
         await supabase.from('AdminActivityLog').insert({
             action, actor, target_id: targetId, target_name: targetName, details, result,
         });
@@ -114,7 +111,7 @@ export async function triggerWeeklySnapshot(actorName = 'system') {
         const occupiedSet = new Set(occupiedRows.map(e => `${e.q},${e.r}`));
 
         // 7b. Load terrain data and build impassable hex set
-        const supabaseForTerrain = createClient(_supabaseUrl, _supabaseKey);
+        const supabaseForTerrain = supabaseAdmin;
         const { data: mapWorldData } = await supabaseForTerrain
             .from('world_maps')
             .select('data')
@@ -545,7 +542,7 @@ export async function importRostersData(csvContent: string, actorName = 'system'
 
 // ── 玩家設定生日 ────────────────────────────────────────
 export async function updateSystemSetting(key: string, value: string) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase
         .from('SystemSettings')
         .upsert({ SettingName: key, Value: value }, { onConflict: 'SettingName' });
@@ -554,7 +551,7 @@ export async function updateSystemSetting(key: string, value: string) {
 }
 
 export async function deleteTestimony(id: string) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('Testimonies').delete().eq('id', id);
     if (error) return { success: false, error: error.message };
     return { success: true };
@@ -562,7 +559,7 @@ export async function deleteTestimony(id: string) {
 
 // ── 儀表板統計 ────────────────────────────────────────
 export async function getAdminDashboardStats() {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
 
     // Total users
     const { count: totalUsers } = await supabase
@@ -589,7 +586,7 @@ export async function getAdminDashboardStats() {
 }
 
 export async function getSquadRankings() {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { data } = await supabase
         .from('CharacterStats')
         .select('SquadName, Exp');
@@ -614,7 +611,7 @@ export async function getSquadRankings() {
 
 // ── 人員管理 ────────────────────────────────────────
 export async function getPersonnelList() {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { data, error } = await supabase
         .from('CharacterStats')
         .select('UserID, Name, Role, Level, Exp, TeamName, SquadName, IsCaptain, IsCommandant, IsGM, LastCheckIn, Streak, TotalFines')
@@ -625,7 +622,7 @@ export async function getPersonnelList() {
 }
 
 export async function getBattalionSquadTree() {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { data, error } = await supabase
         .from('CharacterStats')
         .select('UserID, Name, Role, Level, Exp, TeamName, SquadName, IsCaptain, IsCommandant')
@@ -657,7 +654,7 @@ export async function getBattalionSquadTree() {
 
 // ── 課程報名查詢 ────────────────────────────────────────
 export async function getCourseRegistrations(courseKey: string) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
 
     const { data: regs, error } = await supabase
         .from('CourseRegistrations')
@@ -705,7 +702,7 @@ export async function getCourseRegistrations(courseKey: string) {
 
 // ── 加分規則 CRUD ────────────────────────────────────────
 export async function listBonusQuestRules() {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { data, error } = await supabase
         .from('BonusQuestRules')
         .select('*')
@@ -718,7 +715,7 @@ export async function listBonusQuestRules() {
 export async function upsertBonusQuestRule(rule: {
     id?: string; name: string; keywords: string[]; bonusType: 'energy' | 'golden'; bonusAmount: number; active: boolean;
 }) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
 
     if (rule.id) {
         const { error } = await supabase
@@ -736,7 +733,7 @@ export async function upsertBonusQuestRule(rule: {
 }
 
 export async function deleteBonusQuestRule(id: string) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('BonusQuestRules').delete().eq('id', id);
     if (error) return { success: false, error: error.message };
     return { success: true };
@@ -744,21 +741,21 @@ export async function deleteBonusQuestRule(id: string) {
 
 // ── 臨時任務 CRUD ─────────────────────────────────────────
 export async function addTempQuest(quest_id: string, title: string, sub: string, desc: string, reward: number) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('temporaryquests').insert([{ id: quest_id, quest_id, title, sub, desc, reward, limit_count: 1, active: true }]);
     if (error) return { success: false, error: error.message };
     return { success: true };
 }
 
 export async function toggleTempQuest(quest_id: string, active: boolean) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('temporaryquests').update({ active }).eq('id', quest_id);
     if (error) return { success: false, error: error.message };
     return { success: true };
 }
 
 export async function deleteTempQuest(quest_id: string) {
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase.from('temporaryquests').delete().eq('id', quest_id);
     if (error) return { success: false, error: error.message };
     return { success: true };
@@ -767,7 +764,7 @@ export async function deleteTempQuest(quest_id: string) {
 export async function saveBirthday(userId: string, birthday: string) {
     // Validate format YYYY-MM-DD
     if (!/^\d{4}-\d{2}-\d{2}$/.test(birthday)) return { success: false, error: '日期格式錯誤，請使用 YYYY-MM-DD' };
-    const supabase = createClient(_supabaseUrl, _supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase
         .from('CharacterStats')
         .update({ Birthday: birthday })

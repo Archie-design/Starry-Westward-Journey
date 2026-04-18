@@ -1,12 +1,9 @@
 'use server';
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabaseAdmin';
 import { W4Application } from '@/types';
 import { processCheckInTransaction } from '@/app/actions/quest';
 import { logAdminAction } from '@/app/actions/admin';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
 // ── 隊員：提交傳愛申請 ─────────────────────────────────────
 export async function submitW4Application(
@@ -18,7 +15,7 @@ export async function submitW4Application(
     interviewDate: string,      // YYYY-MM-DD
     description: string = ''
 ) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     // questId includes target so each person's interview is a distinct check-in record
     const questId = `w4|${interviewDate}|${interviewTarget.trim().slice(0, 50)}`;
 
@@ -63,7 +60,7 @@ export async function reviewW4BySquadLeader(
     approve: boolean,
     notes: string = ''
 ) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     // 驗證審核者為小隊長，且與申請人同小隊
     const { data: reviewer } = await supabase
@@ -105,7 +102,7 @@ export async function reviewW4ByAdmin(
     notes: string = '',
     reviewerName: string = 'admin'
 ) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
 
     const { data: app } = await supabase
         .from('W4Applications')
@@ -176,7 +173,7 @@ export async function getW4Applications(filter: {
     squadName?: string;
     status?: string;
 } = {}) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     let query = supabase.from('W4Applications').select('*').order('created_at', { ascending: false });
 
     if (filter.userId) query = query.eq('user_id', filter.userId);
@@ -190,7 +187,7 @@ export async function getW4Applications(filter: {
 
 // ── 查詢管理操作日誌 ──────────────────────────────────────
 export async function getAdminActivityLog(limit = 50) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     const { data, error } = await supabase
         .from('AdminActivityLog')
         .select('*')
@@ -202,7 +199,7 @@ export async function getAdminActivityLog(limit = 50) {
 }
 
 export async function deleteAdminLog(id: string) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = supabaseAdmin;
     const { error } = await supabase
         .from('AdminActivityLog')
         .delete()

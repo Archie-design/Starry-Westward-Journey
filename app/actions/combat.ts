@@ -1,15 +1,11 @@
 "use server";
 
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin';
 import { CharacterStats } from '@/types';
 import { ROLE_CURE_MAP, DEFAULT_CONFIG } from '@/lib/constants';
 import { checkMapAchievements } from '@/app/actions/achievements';
 import { ZONE_CHAR_TO_ID } from '@/lib/achievements';
 import { getLogicalDateStr } from '@/lib/utils/time';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseActionKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-const supabase = createClient(supabaseUrl, supabaseActionKey);
 
 interface CombatParams {
     attackerId: string;

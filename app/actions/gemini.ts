@@ -1,15 +1,11 @@
 'use server';
 
 import { GoogleGenAI } from '@google/genai';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin as supabase } from '@/lib/supabaseAdmin';
 import { getWeeklyMonday } from '@/lib/utils/time';
 import type { WeeklyReview, CaptainBriefing } from '@/types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // API 重試機制 (Exponential Backoff + Jitter) 以處理 429 TooManyRequests
